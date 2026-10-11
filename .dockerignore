@@ -1,0 +1,7 @@
+*
+!requirements.lock
+!pyproject.toml
+!cinebridge/
+!cinebridge/**
+cinebridge/**/__pycache__
+cinebridge/**/*.pyc

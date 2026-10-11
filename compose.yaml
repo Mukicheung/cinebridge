@@ -1,0 +1,20 @@
+services:
+  cinebridge:
+    build: .
+    image: cinebridge:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CINEBRIDGE_PORT:-8766}:8766"
+    volumes:
+      - cinebridge-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+volumes:
+  cinebridge-data:

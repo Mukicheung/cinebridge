@@ -1,0 +1,29 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements.lock && pip install -e '.[dev]'
+      - run: pytest -q
+      - run: ruff check cinebridge tests
+      - run: node --check cinebridge/static/app.js
+      - run: python scripts/audit_release.py
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build --wait --wait-timeout 180
+      - run: curl --fail http://127.0.0.1:8766/healthz
+      - run: docker compose exec -T cinebridge cinebridge status --json
+      - if: always()
+        run: docker compose down
