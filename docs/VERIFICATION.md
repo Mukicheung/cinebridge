@@ -33,3 +33,7 @@
 
 See the GitHub Actions results for checks on the exact published commit. Do not
 interpret an isolated test server as third-party production acceptance.
+
+## Independent CI
+
+GitHub Actions run [38136888759](https://github.com/tainanzhui/cinebridge/actions/runs/38136888759) passed for implementation commit `4163224`: Python 3.11 and 3.13 tests, lint, release audit, and a clean Ubuntu container build/start/authenticated CLI smoke test.

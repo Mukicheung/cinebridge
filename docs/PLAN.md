@@ -32,4 +32,5 @@ Name is a working title; license initially Apache-2.0, documented attribution fo
 - Planning: complete. New isolated repository created.
 - Implementation: complete for the scoped 0.1 vertical slice.
 - Verification: 22 tests pass, Chrome desktop flow checked, ARM64 Docker healthy.
-- Publication: repository audit and release in progress; see VERIFICATION.md for explicit external-service gaps.
+- Publication: public repository tainanzhui/cinebridge created; independent CI passed.
+- Release: v0.1.0 initial release; external-service gaps remain explicit in VERIFICATION.md.
