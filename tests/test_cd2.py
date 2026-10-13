@@ -61,3 +61,41 @@ def test_cd2_actual_grpc_wire_submission_and_completion():
         cd.close()
     finally:
         server.stop(0).wait()
+
+
+def test_cd2_uses_pagination_instead_of_unbounded_legacy_listing():
+    from cinebridge.cd2 import CD2, MESSAGES
+
+    server = grpc.server(ThreadPoolExecutor(max_workers=2))
+    seen = []
+
+    def status(req, context):
+        seen.append(req.page)
+        return MESSAGES["OfflineFileListAllResult"](
+            pageCount=2,
+            offlineFiles=[]
+            if req.page == 1
+            else [MESSAGES["OfflineFile"](infoHash="ab" * 20, status=2, percendDone=100)],
+        )
+
+    handler = grpc.unary_unary_rpc_method_handler(
+        status,
+        request_deserializer=MESSAGES["OfflineFileListAllRequest"].FromString,
+        response_serializer=lambda m: m.SerializeToString(),
+    )
+    server.add_generic_rpc_handlers(
+        (
+            grpc.method_handlers_generic_handler(
+                "clouddrive.CloudDriveFileSrv", {"ListAllOfflineFiles": handler}
+            ),
+        )
+    )
+    port = server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        cd = CD2({"url": f"http://127.0.0.1:{port}", "token": "test"})
+        assert cd.status("ab" * 20, "/115/Movies")["status"] == "finished"
+        assert seen == [1, 2]
+        cd.close()
+    finally:
+        server.stop(0).wait()

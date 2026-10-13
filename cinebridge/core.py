@@ -149,8 +149,10 @@ class Store:
         config = dict(obj.get("config", {}))
         if obj.get("id"):
             old = self.connection(cid, private=True)
-            if old and old["kind"] == kind and not config.get("token"):
-                config["token"] = old["config"].get("token", "")
+            if old and old["kind"] == kind:
+                for field in ("token", "username", "password"):
+                    if not config.get(field):
+                        config[field] = old["config"].get(field, "")
         url = urlsplit(config.get("url", ""))
         if (
             url.scheme not in ("http", "https")
@@ -180,6 +182,8 @@ class Store:
         out["config"] = json.loads(self.cipher.decrypt(out["config"].encode()))
         if not private:
             out["has_token"] = bool(out["config"].pop("token", None))
+            out["has_login"] = bool(out["config"].pop("username", None))
+            out["config"].pop("password", None)
         return out
 
     def connections(self, private=False):
@@ -284,7 +288,7 @@ class Store:
     def save_subscription(self, obj):
         sid = obj.get("id") or uuid.uuid4().hex
         old = self.subscription(sid) or {}
-        merged = dict(old, **obj, id=sid)
+        merged = {**old, **obj, "id": sid}
         merged.setdefault("initialized", False)
         merged.setdefault("enabled", True)
         merged.setdefault("last_poll", 0)

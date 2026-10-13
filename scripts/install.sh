@@ -19,5 +19,4 @@ else
 fi
 cd "$task_install_dir"
 docker compose up -d --build --wait --wait-timeout 180
-printf '\n片桥已启动：http://127.0.0.1:%s\n访问密钥（仅用于自己的工作台）：\n' "${CINEBRIDGE_PORT:-8766}"
-docker compose exec -T cinebridge cinebridge token
+printf '\n幕间已启动：http://127.0.0.1:%s\n打开即可使用，无需登录。\n' "${CINEBRIDGE_PORT:-8766}"

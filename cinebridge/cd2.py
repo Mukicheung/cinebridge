@@ -39,6 +39,8 @@ def _messages():
             ("percendDone", 9, "double"),
         ],
         "OfflineFileListResult": [("offlineFiles", 1, "OfflineFile[]")],
+        "OfflineFileListAllRequest": [("page", 3, "uint32"), ("path", 4, "string")],
+        "OfflineFileListAllResult": [("pageCount", 3, "uint32"), ("offlineFiles", 6, "OfflineFile[]")],
     }
     scalar = {"string": 9, "bool": 8, "int64": 3, "uint64": 4, "uint32": 13, "double": 1}
     for name, fields in definitions.items():
@@ -64,7 +66,10 @@ MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".m2ts", ".is
 
 
 class CD2:
+    _scan_pages = {}
+
     def __init__(self, config):
+        self.endpoint = config["url"]
         url = urlsplit(config["url"])
         if url.scheme not in ("http", "https") or not url.hostname or url.path not in ("", "/"):
             raise ValueError("CD2 地址须包含协议和端口，不能包含路径")
@@ -121,15 +126,42 @@ class CD2:
             raise ValueError("CD2 未确认任务提交，需要核对远端任务")
 
     def status(self, info_hash, folder):
-        result = self.call("ListOfflineFilesByPath", "FileRequest", "OfflineFileListResult", path=folder)
-        for f in result.offlineFiles:
-            if f.infoHash.lower() == info_hash.lower():
-                return {
-                    "status": {0: "pending", 1: "downloading", 2: "finished", 3: "error"}.get(
-                        f.status, "unknown"
-                    ),
-                    "progress": max(0, min(100, f.percendDone)),
-                }
+        # Legacy listing reads the entire account and times out on large libraries.
+        # Check recent tasks first, then resume a bounded scan across subsequent ticks.
+        key = (self.endpoint, folder, info_hash)
+        start = self._scan_pages.get(key, 1)
+        pages = [1] + list(range(max(2, start), max(2, start) + 3))
+        for page in pages:
+            try:
+                result = self.call(
+                    "ListAllOfflineFiles",
+                    "OfflineFileListAllRequest",
+                    "OfflineFileListAllResult",
+                    path=folder,
+                    page=page,
+                )
+            except grpc.RpcError as exc:
+                if exc.code() != grpc.StatusCode.UNIMPLEMENTED:
+                    raise
+                result = self.call(
+                    "ListOfflineFilesByPath", "FileRequest", "OfflineFileListResult", path=folder
+                )
+            for f in result.offlineFiles:
+                if f.infoHash.lower() == info_hash.lower():
+                    self._scan_pages.pop(key, None)
+                    return {
+                        "status": {0: "pending", 1: "downloading", 2: "finished", 3: "error"}.get(
+                            f.status, "unknown"
+                        ),
+                        "progress": max(0, min(100, f.percendDone)),
+                    }
+            total = getattr(result, "pageCount", 1)
+            if page >= total:
+                self._scan_pages.pop(key, None)
+                break
+            if len(self._scan_pages) > 1024:
+                self._scan_pages.clear()
+            self._scan_pages[key] = page + 1
         return {"status": "unknown", "progress": 0}
 
     def media_files(self, folder):

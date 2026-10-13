@@ -1,5 +1,6 @@
 """Public protocol adapters. No bundled resource endpoints or user credentials."""
 
+import hashlib
 import json
 import posixpath
 import re
@@ -50,16 +51,38 @@ def parse_release(name):
 
 
 class AlistSource:
+    _sessions = {}
+
     def __init__(self, config, http=None):
-        self.config = config
+        self.config = dict(config)
         self.http = http or client()
+        identity = json.dumps([config.get(k, "") for k in ("url", "username", "password", "token")])
+        self.session_key = hashlib.sha256(identity.encode()).hexdigest()
+        self.token = self._sessions.get(self.session_key, config.get("token", ""))
 
     def api(self, path, body):
-        r = self.http.post(
-            self.config["url"].rstrip("/") + path,
-            json=body,
-            headers={"Authorization": self.config.get("token", "")},
-        )
+        def request():
+            return self.http.post(
+                self.config["url"].rstrip("/") + path, json=body, headers={"Authorization": self.token}
+            )
+
+        r = request()
+        expired = r.status_code == 401 or (r.is_success and r.json().get("code") == 401)
+        if expired and self.config.get("username") and "password" in self.config:
+            login = self.http.post(
+                self.config["url"].rstrip("/") + "/api/auth/login",
+                json={k: self.config[k] for k in ("username", "password")},
+            )
+            login.raise_for_status()
+            obj = login.json()
+            token = (obj.get("data") or {}).get("token")
+            if obj.get("code") != 200 or not token:
+                raise ValueError("搜索服务登录已失效，请检查账号配置")
+            self.token = token
+            if len(self._sessions) > 64:
+                self._sessions.clear()
+            self._sessions[self.session_key] = token
+            r = request()
         r.raise_for_status()
         obj = r.json()
         if obj.get("code") != 200:
@@ -100,7 +123,11 @@ class AlistSource:
         raise ValueError("搜索结果超过 5000 条，请缩小关键词")
 
     def resolve(self, resource):
-        data = self.api("/api/fs/get", {"path": resource["path"], "password": ""})
+        path = resource["path"]
+        prefix = self.config.get("strip_prefix", "").rstrip("/")
+        if prefix and path.startswith(prefix + "/"):
+            path = path[len(prefix) :]
+        data = self.api("/api/fs/get", {"path": path, "password": ""})
         url = data.get("raw_url", "")
         if urlsplit(url).scheme not in ("https", "http"):
             raise ValueError("资源源未返回可下载的种子")

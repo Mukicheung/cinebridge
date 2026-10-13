@@ -49,7 +49,11 @@ class Engine:
         finally:
             source.http.close()
 
-    def enqueue_resource(self, rid, downloader_id):
+    def enqueue_resource(self, rid, downloader_id=""):
+        if not downloader_id:
+            choices = [c for c in self.store.connections() if c["kind"] == "cd2" and c["enabled"]]
+            if len(choices) == 1:
+                downloader_id = choices[0]["id"]
         item = self.store.resource(rid)
         c = self.store.connection(downloader_id, private=True)
         if not item or not c or c["kind"] != "cd2" or not c["enabled"]:

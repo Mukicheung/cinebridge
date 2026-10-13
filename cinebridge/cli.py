@@ -12,7 +12,7 @@ import httpx
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="cinebridge", description="片桥 · 自托管影视自动化中台")
+    p = argparse.ArgumentParser(prog="cinebridge", description="幕间 · 找片、下载、片库")
     p.add_argument("--url", default=os.environ.get("CINEBRIDGE_URL", "http://127.0.0.1:8766"))
     p.add_argument(
         "--data", default=os.environ.get("CINEBRIDGE_DATA", str(Path.home() / ".local/share/cinebridge"))
@@ -37,7 +37,7 @@ def parser():
     imp.add_argument("--json", action="store_true")
     download = sub.add_parser("download")
     download.add_argument("resource_id")
-    download.add_argument("--to", required=True, help="CD2 连接 ID")
+    download.add_argument("--to", default="", help="多个 CD2 连接时选择保存位置")
     download.add_argument("--json", action="store_true")
     export = sub.add_parser("export", help="把搜索结果导出为逐行磁力链接")
     export.add_argument("query")
@@ -97,7 +97,7 @@ def main():
         from .app import create_app
 
         print(f"CineBridge → http://{args.host}:{args.port}", flush=True)
-        print("登录密钥：在另一个私有终端运行 cinebridge token", flush=True)
+        print("本地模式：打开即可使用", flush=True)
         uvicorn.run(
             create_app(directory), host=args.host, port=args.port, access_log=False, log_level="warning"
         )
@@ -106,10 +106,10 @@ def main():
         token = os.environ.get("CINEBRIDGE_TOKEN")
         if not token:
             token_path = Path(os.environ.get("CINEBRIDGE_TOKEN_FILE", str(directory / "admin.token")))
-            token = token_path.read_text().strip()
+            token = token_path.read_text().strip() if token_path.exists() else ""
         with httpx.Client(
             base_url=args.url,
-            headers={"Authorization": "Bearer " + token},
+            headers={"Authorization": "Bearer " + token} if token else {},
             timeout=300,
             follow_redirects=False,
             trust_env=False,
@@ -209,5 +209,5 @@ def main():
                 else:
                     print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError, httpx.HTTPError):
-        print("操作失败：请检查参数、服务连接与访问密钥。可用 --help 查看命令。", file=sys.stderr)
+        print("操作失败：请检查参数与本地服务连接。可用 --help 查看命令。", file=sys.stderr)
         raise SystemExit(1) from None

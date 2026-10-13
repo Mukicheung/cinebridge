@@ -20,12 +20,11 @@ const icons = {
 const icon = (name) =>
   `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name] || icons.library}"/></svg>`;
 const pages = {
-  overview: "概览",
-  search: "搜片",
-  subscriptions: "片单与订阅",
-  tasks: "任务中心",
-  library: "媒体库",
-  connections: "连接与规则",
+  search: "找片",
+  subscriptions: "豆瓣片单",
+  tasks: "下载",
+  library: "我的片库",
+  connections: "设置",
 };
 const statuses = {
   queued: "等待提交",
@@ -41,12 +40,15 @@ const statuses = {
   baseline: "历史基线",
 };
 const state = {
-  token: sessionStorage.getItem("cinebridge-token") || "",
-  page: "overview",
+  page: "search",
   connections: [],
   results: [],
   query: "",
   epoch: 0,
+  searched: false,
+  libraryPath: "",
+  quality: "all",
+  resultLimit: 24,
 };
 const size = (n) =>
   !n
@@ -71,11 +73,35 @@ function toast(message) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => ($("#toast").hidden = true), 4500);
 }
+function copyText(value, success) {
+  const previous = document.activeElement;
+  const buffer = document.createElement("textarea");
+  buffer.className = "copy-buffer";
+  buffer.value = value;
+  buffer.setAttribute("aria-label", "待复制内容");
+  document.body.append(buffer);
+  buffer.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    /* Offer selectable text below. */
+  }
+  buffer.remove();
+  previous?.focus({ preventScroll: true });
+  if (copied) toast(success);
+  else {
+    openDialog(
+      "复制链接",
+      `<p>浏览器未允许直接复制。内容已选中，按 ⌘ C / Ctrl C，或长按复制。</p><div class="form-grid"><textarea id="copy-value" readonly aria-label="待复制内容">${esc(value)}</textarea></div>`,
+    );
+    $("#copy-value").select();
+  }
+}
 async function api(path, body, method) {
   const res = await fetch("/api" + path, {
     method: method || (body === undefined ? "GET" : "POST"),
     headers: {
-      Authorization: "Bearer " + state.token,
       "Content-Type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -87,23 +113,11 @@ async function api(path, body, method) {
     throw Error("服务暂时不可用，请检查本地服务");
   }
   if (!res.ok) {
-    if (res.status === 401) showLogin();
     throw Error(
       typeof data.detail === "string" ? data.detail : "请检查填写内容",
     );
   }
   return data;
-}
-function showLogin() {
-  state.token = "";
-  sessionStorage.removeItem("cinebridge-token");
-  $("#shell").hidden = true;
-  $("#login").hidden = false;
-}
-function showApp() {
-  $("#login").hidden = true;
-  $("#shell").hidden = false;
-  render();
 }
 function head(title, desc, action = "") {
   return `<div class="page-head"><div><h1>${title}</h1><p>${desc}</p></div>${action}</div>`;
@@ -116,34 +130,71 @@ function navTo(page) {
   if (state.page === page) render();
 }
 function downloaderOptions() {
+  const options = state.connections.filter(
+    (c) => c.kind === "cd2" && c.enabled,
+  );
   return (
-    '<option value="">选择下载连接</option>' +
-    state.connections
-      .filter((c) => c.kind === "cd2" && c.enabled)
+    (options.length === 1 ? "" : '<option value="">选择保存位置</option>') +
+    options
       .map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`)
       .join("")
   );
 }
+function animateIn(root = $("#content")) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  root
+    .querySelectorAll(".result,.connection,.journey-item")
+    .forEach((el, i) => {
+      if (i < 30)
+        el.animate(
+          [
+            { opacity: 0, transform: "translateY(18px)" },
+            { opacity: 1, transform: "translateY(0)" },
+          ],
+          {
+            duration: 550,
+            delay: Math.min(i * 45, 320),
+            easing: "cubic-bezier(.22,1,.36,1)",
+            fill: "backwards",
+          },
+        );
+    });
+}
 async function render() {
+  const previousPage = state.page;
   state.page = pages[location.hash.slice(1)]
     ? location.hash.slice(1)
-    : "overview";
+    : "search";
   const epoch = ++state.epoch;
-  $("#crumb").textContent = pages[state.page];
-  $("#nav").innerHTML = Object.entries(pages)
-    .map(
-      ([id, name]) =>
-        `<a href="#${id}" class="${id === state.page ? "active" : ""}">${icon(id)}${name}</a>`,
-    )
-    .join("");
-  $("#content").innerHTML = '<div class="loading">正在载入工作台…</div>';
   try {
     state.connections = await api("/connections");
     if (epoch !== state.epoch) return;
     const html = await views[state.page]();
     if (epoch !== state.epoch) return;
-    $("#content").innerHTML = html;
-    bindPage();
+    const update = () => {
+      $("#nav").innerHTML = ["search", "tasks", "library"]
+        .map(
+          (id) =>
+            `<a href="#${id}" class="${id === state.page ? "active" : ""}" ${id === state.page ? 'aria-current="page"' : ""}>${pages[id]}</a>`,
+        )
+        .join("");
+      $("#content").classList.toggle(
+        "search-active",
+        state.page === "search" && state.searched,
+      );
+      $("#content").innerHTML = html;
+      bindPage();
+      if (previousPage !== state.page)
+        window.scrollTo({ top: 0, behavior: "instant" });
+      animateIn();
+    };
+    if (
+      document.startViewTransition &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      $("#content").children.length
+    )
+      document.startViewTransition(update);
+    else update();
   } catch (e) {
     if (epoch === state.epoch)
       $("#content").innerHTML =
@@ -151,107 +202,21 @@ async function render() {
   }
 }
 const views = {
-  async overview() {
-    const o = await api("/overview");
-    const c = o.counts;
-    const sources = state.connections.filter(
-      (x) => x.kind !== "cd2" && x.enabled,
-    ).length;
-    const downloaders = state.connections.filter(
-      (x) => x.kind === "cd2" && x.enabled,
-    ).length;
-    const active = [
-      "queued",
-      "submitted",
-      "submitting",
-      "downloading",
-      "downloaded",
-    ].reduce((n, k) => n + (c[k] || 0), 0);
-    return (
-      head("你的片库，从这里连接。", "片单、资源与下载，在同一个工作空间里。") +
-      `<section class="hero"><div class="hero-text"><p class="eyebrow">LESS MANAGING. MORE WATCHING.</p><h2>每一个想看，<br>都有通往片库的路。</h2><p>连接自己的服务，让找片、下载和入库自然衔接。</p><div class="hero-actions"><button class="primary" data-nav="search">${icon("search")} 开始找片</button><button class="secondary" data-nav="connections">管理连接 ↗</button></div></div><div class="hero-art" aria-hidden="true"><div class="art-orbit"></div><div class="film">▷</div></div></section><section class="stats">${[
-        [
-          "已连接服务",
-          state.connections.filter((x) => x.enabled).length,
-          "由你配置，由你掌控",
-          "connections",
-        ],
-        ["进行中任务", active, "提交与下载状态分开记录", "tasks"],
-        [
-          "已验证入库",
-          c.completed || 0,
-          "下载完成，并已找到媒体文件",
-          "library",
-        ],
-        [
-          "片单订阅",
-          o.subscriptions,
-          "每 10 分钟检查新增条目",
-          "subscriptions",
-        ],
-      ]
-        .map(
-          ([label, n, note, i]) =>
-            `<div class="stat"><div class="stat-label">${label}${icon(i)}</div><div class="stat-number">${n}<span></span></div><div class="stat-note">${note}</div></div>`,
-        )
-        .join(
-          "",
-        )}</section><div class="two-col"><section class="panel"><div class="panel-head"><h2>搭好你的观影工作流</h2><span class="small">${Number(sources > 0) + Number(downloaders > 0) + Number(o.subscriptions > 0)} / 3 已配置</span></div><div class="panel-body">${[
-        [
-          sources,
-          "接入一个资源源",
-          "连接自己的资源目录，或先导入种子试试。",
-          "connections",
-        ],
-        [
-          downloaders,
-          "连接 CD2 与 115",
-          "使用自己的账号，选择媒体保存目录。",
-          "connections",
-        ],
-        [
-          o.subscriptions,
-          "订阅你的豆瓣片单",
-          "新增想看自动找片，历史记录默认只建基线。",
-          "subscriptions",
-        ],
-      ]
-        .map(
-          ([done, title, desc, page], i) =>
-            `<div class="step"><div class="step-num ${done ? "done" : ""}">${done ? "✓" : String(i + 1).padStart(2, "0")}</div><div class="step-content"><strong>${title}</strong><p>${desc}</p></div><button class="arrow" data-nav="${page}" aria-label="${title}">↗</button></div>`,
-        )
-        .join(
-          "",
-        )}</div></section><section class="panel"><div class="panel-head"><h2>最近动态</h2><button class="text-button" data-nav="tasks">查看任务 →</button></div>${
-        o.events.length
-          ? `<div class="panel-body">${o.events
-              .slice(0, 4)
-              .map(
-                (e) =>
-                  `<div class="event">${esc(e.message)}<small>${when(e.created)}</small></div>`,
-              )
-              .join("")}</div>`
-          : empty(
-              "准备好，接住下一部好电影",
-              "任务入库后，处理记录会出现在这里。",
-              "",
-              "tasks",
-            )
-      }</section></div>${o.worker.message ? `<div class="notice">${esc(o.worker.message)}</div>` : ""}`
-    );
-  },
   async search() {
-    return (
-      head("找一部，想看的。", "搜索自己的资源源，先看候选，再决定是否下载。") +
-      `<form class="search-form" id="search-form">${icon("search")}<input id="query" aria-label="搜索片名" placeholder="输入电影、剧集名称…" value="${esc(state.query)}" required maxlength="100"><button class="primary" type="submit">搜索资源 →</button></form><div class="search-suggestions"><span>自己的资源源</span><span>种子与磁力</span><span>支持只搜索、不下载</span></div><div id="results">${state.results.length ? resultsHTML() : `<div class="panel">${empty("好电影的下一站，是你的片库", state.connections.some((c) => c.kind !== "cd2") ? "输入片名，搜索所有已启用的资源源。" : "还没有连接资源源。可以连接自己的目录，也可以导入磁力或种子。", '<button class="button" data-nav="connections">配置资源源</button><button class="text-button" data-action="import">导入种子或磁力 ↗</button>', "search")}</div>`}</div>`
+    const sources = state.connections.filter(
+      (c) => c.kind !== "cd2" && c.enabled,
+    ).length;
+    const downloader = state.connections.some(
+      (c) => c.kind === "cd2" && c.enabled,
     );
+    return `<section class="search-stage"><p class="eyebrow">YOUR NEXT GREAT WATCH</p><h1>下一部，<em>想看什么？</em></h1><p class="intro">搜到心仪的电影，存进自己的 115。</p><form class="search-form" id="search-form">${icon("search")}<input id="query" aria-label="搜索片名" placeholder="搜电影、剧集，或粘贴磁力链接" value="${esc(state.query)}" required maxlength="16384" autocomplete="off"><button class="primary" type="submit">找一找 <span>↗</span></button></form><div class="search-under"><span><i class="ready-dot"></i>${sources ? "已接入 " + sources + " 个搜索服务" : "尚未连接搜索服务"}</span><span>${downloader ? "115 下载已配置" : "可先找片，稍后连接 115"}</span><button class="text-button" data-action="import">导入种子<span class="kbd">⌘ K 搜索</span></button></div></section><div id="results">${state.searched ? (state.results.length ? resultsHTML() : empty("没有找到匹配的资源", "换个片名或更短的关键词试试。", "", "search")) : ""}</div>${!state.searched ? `<section class="discovery"><article class="cinema"><img src="/static/scene.svg" alt="" aria-hidden="true"><div class="cinema-text"><p class="eyebrow">FROM YOUR WISHLIST, TO YOUR LIBRARY</p><h2>留下一个想看。<br>把其余交给幕间。</h2><p>连接豆瓣片单，自动寻找新增的电影和剧集。<br>从发现到下载，让期待有个着落。</p><button class="light-button" data-nav="subscriptions">连接我的豆瓣 <span>↗</span></button></div><span class="cinema-caption">A MOMENT BETWEEN STORIES</span></article><div class="journey"><div class="journey-item"><span>01</span><div><strong>找一部想看的</strong><p>输入片名，统一搜索你的资源。</p></div></div><div class="journey-item"><span>02</span><div><strong>选一个喜欢的版本</strong><p>看清画质，再下载或复制磁力。</p></div></div><div class="journey-item"><span>03</span><div><strong>回片库，慢慢看</strong><p>存入自己的 115，进度随时可见。</p></div></div></div></section>` : ""}`;
   },
   async tasks() {
     const tasks = await api("/tasks");
     return (
       head(
-        "每一步，都看得见。",
-        "从等待提交到文件验证，保留真实的处理状态。",
+        "下载中的好时光。",
+        "选好的电影和剧集，进度都在这里。",
         '<button class="button" data-action="refresh">刷新状态 ↻</button>',
       ) +
       (!tasks.length
@@ -262,11 +227,11 @@ const views = {
   async connections() {
     return (
       head(
-        "你的服务，由你连接。",
-        "独立的账号与资源源，不依赖共享接口。",
+        "把常用的服务连起来。",
+        "配置一次，以后直接找片、下载。",
         '<button class="primary" data-action="connection">＋ 添加连接</button>',
       ) +
-      `<div class="connection-grid">${state.connections.map((c) => `<article class="connection"><div class="connection-head"><div class="service-icon">${c.kind === "cd2" ? "CD" : c.kind === "alist" ? "AL" : "{ }"}</div><div><h3>${esc(c.name)}</h3><small>${c.kind === "cd2" ? "CloudDrive2 · 115 下载" : c.kind === "alist" ? "AList 兼容资源源" : "JSON 资源目录"}</small></div></div><p class="connection-url">${esc(c.config.url)}<br>${esc(c.config.root || "")}${c.has_token ? " · 已保存访问令牌" : ""}</p><div class="connection-actions"><button class="button small-button" data-test="${c.id}">测试连接</button><button class="button small-button" data-edit="${c.id}">编辑</button><button class="text-button" data-delete="${c.id}">移除</button>${!c.enabled ? '<span class="badge warning">已停用</span>' : ""}</div></article>`).join("")}<button class="connection add-connection" data-action="connection"><h3>＋ 连接一个新服务</h3><p>资源源、CD2 和你的 115</p></button></div><div class="hint">115 在你自己的 CD2 中登录，片桥使用 CD2 的访问令牌。首次下载前，请在 CD2 中建好入库根目录，并授权目录读取、创建和离线下载权限。</div><section class="panel"><div class="panel-head"><h2>当前自动化规则</h2><span class="badge">稳妥优先</span></div><div class="panel-body"><div class="step"><div class="step-num">01</div><div class="step-content"><strong>片名与年份准确匹配</strong><p>优先可播放文件，再按清晰度选择；未匹配成功的影片保留等待。</p></div></div><div class="step"><div class="step-num">02</div><div class="step-content"><strong>每部影片独立目录</strong><p>按片名与资源标识创建文件夹，不改动已有媒体，不自动删除文件。</p></div></div><div class="step"><div class="step-num">03</div><div class="step-content"><strong>定时补找与防重复</strong><p>豆瓣每 10 分钟同步，待匹配条目每 6 小时补找；同一下载连接按资源哈希去重。</p></div></div></div></section>`
+      `<div class="connection-grid">${state.connections.map((c) => `<article class="connection"><div class="connection-head"><div class="service-icon">${c.kind === "cd2" ? "CD" : c.kind === "alist" ? "AL" : "{ }"}</div><div><h3>${esc(c.name)}</h3><small>${c.kind === "cd2" ? "CloudDrive2 · 115 下载" : c.kind === "alist" ? "AList 兼容资源源" : "JSON 资源目录"}</small></div></div><p class="connection-url">${esc(c.config.url)}<br>${esc(c.config.root || "")}${c.has_token ? " · 已保存访问令牌" : ""}</p><div class="connection-actions"><button class="button small-button" data-test="${c.id}">测试连接</button><button class="button small-button" data-edit="${c.id}">编辑</button><button class="text-button" data-delete="${c.id}">移除</button>${!c.enabled ? '<span class="badge warning">已停用</span>' : ""}</div></article>`).join("")}<button class="connection add-connection" data-action="connection"><h3>＋ 连接一个新服务</h3><p>资源源、CD2 和你的 115</p></button></div><div class="hint">115 在你自己的 CD2 中登录，幕间使用 CD2 的访问令牌。首次下载前，请在 CD2 中建好入库根目录，并授权目录读取、创建和离线下载权限。</div><section class="panel"><div class="panel-head"><h2>当前自动化规则</h2><span class="badge">稳妥优先</span></div><div class="panel-body"><div class="step"><div class="step-num">01</div><div class="step-content"><strong>片名与年份准确匹配</strong><p>优先可播放文件，再按清晰度选择；未匹配成功的影片保留等待。</p></div></div><div class="step"><div class="step-num">02</div><div class="step-content"><strong>每部影片独立目录</strong><p>按片名与资源标识创建文件夹，不改动已有媒体，不自动删除文件。</p></div></div><div class="step"><div class="step-num">03</div><div class="step-content"><strong>定时补找与防重复</strong><p>豆瓣每 10 分钟同步，待匹配条目每 6 小时补找；同一下载连接按资源哈希去重。</p></div></div></div></section>`
     );
   },
   async subscriptions() {
@@ -274,7 +239,7 @@ const views = {
     const items = await api("/watchlist");
     return (
       head(
-        "把「想看」，接到片库。",
+        "在豆瓣点想看，然后呢？",
         "监控公开豆瓣片单，持续寻找新增的电影与剧集。",
         '<button class="primary" data-action="subscription">＋ 添加订阅</button>',
       ) +
@@ -288,25 +253,75 @@ const views = {
     );
   },
   async library() {
-    const items = await api("/library");
+    const drives = state.connections.filter(
+      (c) => c.kind === "cd2" && c.enabled,
+    );
+    if (!drives.length)
+      return (
+        head("你的电影，都在这里。", "浏览自己 115 里的片库。") +
+        empty(
+          "先连接你的 115",
+          "通过 CD2 连接后，就能直接浏览已有的电影和剧集。",
+          '<button class="primary" data-nav="connections">连接 115 →</button>',
+        )
+      );
+    const drive = drives.find((c) => c.id === state.libraryDrive) || drives[0];
+    state.libraryDrive = drive.id;
+    const data = await api(
+      "/library/browse?connection_id=" +
+        encodeURIComponent(drive.id) +
+        "&path=" +
+        encodeURIComponent(state.libraryPath),
+    );
+    const displayPath = data.path.slice(data.root.length) || "全部影片";
     return (
       head(
-        "好电影，已经在这里。",
-        "只展示远端下载完成、并已验证媒体文件的任务。",
+        "你的电影，都在这里。",
+        "直接浏览 115 片库，已有的电影也在。",
+        '<button class="button" data-action="refresh">刷新 ↻</button>',
       ) +
-      (items.length
-        ? `<div class="panel">${items.map((t) => `<article class="result"><div class="poster-mark">${icon("library")}</div><div class="result-main"><h3>${esc(t.title)}</h3><p>${esc(t.folder)}</p>${t.files.map((f) => `<div class="library-file">${esc(f.name)} <span class="tag">${size(f.size)}</span></div>`).join("")}</div>${badge("completed")}</article>`).join("")}</div>`
-        : `<div class="panel">${empty("片库正在等待第一部电影", "完成下载后，片桥会验证目标目录里的媒体文件，再把它放到这里。", '<button class="primary" data-nav="search">发现下一部 →</button>', "library")}</div>`)
+      (drives.length > 1
+        ? `<div class="result-toolbar"><select id="library-drive" class="inline-select" aria-label="选择片库">${drives.map((c) => `<option value="${esc(c.id)}" ${c.id === drive.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>`
+        : "") +
+      `<section class="panel"><div class="library-navigation">${data.parent ? `<button class="button small-button" data-folder="${esc(data.parent)}">← 返回上层</button><button class="text-button" data-folder="">片库首页</button>` : `<span class="ready-dot"></span><span>${esc(drive.name)}</span>`}<span>${esc(displayPath)}</span><span class="small">${data.items.length} 项</span></div>${data.items.length ? data.items.map((f) => `<article class="result ${f.is_dir ? "folder-row" : ""}"><div class="poster-mark">${icon(f.is_dir ? "subscriptions" : "library")}</div><div class="result-main"><h3>${esc(f.name)}</h3><span class="small">${f.is_dir ? "文件夹" : size(f.size)}</span></div><div class="result-actions">${f.is_dir ? `<button class="button small-button" data-folder="${esc(f.path)}" aria-label="打开 ${esc(f.name)}">打开 →</button>` : `<button class="text-button" data-path="${esc(f.path)}">复制路径 ↗</button>`}</div></article>`).join("") : empty("这个文件夹还是空的", "去找一部喜欢的电影，添加到片库。", '<button class="button" data-nav="search">去找片 →</button>')}</section>`
     );
   },
 };
+function visibleResults() {
+  return state.results
+    .filter(
+      (r) => state.quality === "all" || r.resolution === Number(state.quality),
+    )
+    .sort((a, b) => (b.resolution || 0) - (a.resolution || 0));
+}
 function resultsHTML() {
-  return `<div class="result-toolbar"><p>找到 <strong>${state.results.length}</strong> 个候选资源</p><div><select id="downloader" aria-label="下载连接" class="inline-select">${downloaderOptions()}</select><button class="button" data-action="export">导出磁力 ↓</button></div></div><div class="panel">${state.results
-    .map((r) => {
-      const source = state.connections.find((c) => c.id === r.source_id);
-      return `<article class="result"><div class="poster-mark">${icon("library")}</div><div class="result-main"><h3>${esc(r.title)} ${r.year ? `<span class="small">(${r.year})</span>` : ""}</h3><p>${esc(r.name || r.title)}</p><div class="tags">${r.resolution ? `<span class="tag">${r.resolution}p</span>` : ""}<span class="tag">${r.size ? size(r.size) : r.torrent_bytes ? "种子文件 " + size(r.torrent_bytes) : "媒体大小未知"}</span><span class="tag">${esc(source?.name || "本地导入")}</span><span class="tag">${esc(r.format)}</span></div></div><div class="result-actions"><button class="button small-button" data-copy="${r.id}">复制磁力</button><button class="primary small-button" data-download="${r.id}">下载 ↓</button></div></article>`;
-    })
-    .join("")}</div>`;
+  const all = visibleResults();
+  return `<div class="result-toolbar"><p>找到 <strong>${state.results.length}</strong> 个资源</p><div><select id="downloader" aria-label="保存位置" class="inline-select">${downloaderOptions()}</select><button class="button" data-action="export">导出磁力列表 ↓</button></div></div><div class="quality-tabs" role="group" aria-label="按画质筛选">${[
+    ["all", "全部"],
+    ["2160", "4K 超清"],
+    ["1080", "1080p"],
+    ["720", "720p"],
+  ]
+    .map(
+      ([v, label]) =>
+        `<button data-quality="${v}" class="${state.quality === v ? "selected" : ""}" aria-pressed="${state.quality === v}">${label}<small>${v === "all" ? state.results.length : state.results.filter((r) => r.resolution === Number(v)).length}</small></button>`,
+    )
+    .join("")}<span>清晰度从高到低</span></div><div class="panel">${
+    all.length
+      ? all
+          .slice(0, state.resultLimit)
+          .map((r) => {
+            const source = state.connections.find((c) => c.id === r.source_id);
+            return `<article class="result"><div class="poster-mark">${icon("library")}</div><div class="result-main"><h3>${esc(r.title)} ${r.year ? `<span class="small">(${r.year})</span>` : ""}</h3><p>${esc(r.name || r.title)}</p><div class="tags">${r.resolution ? `<span class="tag">${r.resolution === 2160 ? "4K" : r.resolution + "p"}</span>` : ""}${r.size ? `<span class="tag">${size(r.size)}</span>` : ""}<span class="tag">${esc(source?.name || "本地导入")}</span><span class="tag">${r.format === "torrent" ? "种子资源" : "磁力资源"}</span></div></div><div class="result-actions"><button class="button small-button" data-copy="${r.id}">复制磁力</button><button class="primary small-button" data-download="${r.id}">存入 115 ↓</button></div></article>`;
+          })
+          .join("")
+      : empty(
+          "这个画质暂时没有资源",
+          "切换到全部，看看其他版本。",
+          "",
+          "search",
+        )
+  }</div>${all.length > state.resultLimit ? `<div class="load-more"><button class="button" data-action="more">再看 24 个版本 ↓</button><p>已显示 ${state.resultLimit} / ${all.length} 个资源</p></div>` : ""}`;
 }
 function openDialog(title, html) {
   $("#dialog-content").innerHTML =
@@ -355,7 +370,14 @@ function connectionDialog(id) {
       ...(c ? { id: c.id } : {}),
       name: f.get("name"),
       kind: f.get("kind"),
-      config: { url: f.get("url"), token: f.get("token"), root: f.get("root") },
+      config: {
+        url: f.get("url"),
+        token: f.get("token"),
+        root: f.get("root"),
+        ...(c?.config.strip_prefix
+          ? { strip_prefix: c.config.strip_prefix }
+          : {}),
+      },
       enabled: f.has("enabled"),
     });
     toast("连接已保存，可点击测试连接");
@@ -384,6 +406,7 @@ function importDialog() {
     });
     state.query = r.title;
     state.results = [r];
+    state.searched = true;
     location.hash = "search";
     toast("资源已导入，尚未提交下载");
   });
@@ -393,7 +416,7 @@ async function subscriptionDialog(id) {
   const s = subs.find((x) => x.id === id);
   openDialog(
     s ? "编辑片单订阅" : "订阅豆瓣片单",
-    `<p>使用豆瓣个人主页中的用户 ID，无需把豆瓣密码交给片桥。</p><form id="modal-form"><div class="form-grid"><div><label for="sub-name">订阅名称</label><input id="sub-name" name="name" required value="${esc(s?.name || "我的豆瓣片单")}"></div><div><label for="sub-user">豆瓣用户 ID</label><input id="sub-user" name="user_id" required pattern="[A-Za-z0-9_-]{1,80}" value="${esc(s?.user_id || "")}" ${s ? "readonly" : ""} placeholder="个人主页 people/ 后面的 ID"></div><div><label>监控的片单</label>${[
+    `<p>使用豆瓣个人主页中的用户 ID，无需把豆瓣密码交给幕间。</p><form id="modal-form"><div class="form-grid"><div><label for="sub-name">订阅名称</label><input id="sub-name" name="name" required value="${esc(s?.name || "我的豆瓣片单")}"></div><div><label for="sub-user">豆瓣用户 ID</label><input id="sub-user" name="user_id" required pattern="[A-Za-z0-9_-]{1,80}" value="${esc(s?.user_id || "")}" ${s ? "readonly" : ""} placeholder="个人主页 people/ 后面的 ID"></div><div><label>监控的片单</label>${[
       ["wish", "想看"],
       ["do", "在看"],
       ["collect", "看过"],
@@ -424,18 +447,46 @@ async function subscriptionDialog(id) {
   });
 }
 function bindPage() {
+  const drives = $("#library-drive");
+  if (drives)
+    drives.onchange = () => {
+      state.libraryDrive = drives.value;
+      state.libraryPath = "";
+      render();
+    };
   const form = $("#search-form");
   if (form)
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      state.query = $("#query").value.trim();
+      const query = $("#query").value.trim();
+      if (!query) return;
+      state.query = query;
+      const epoch = state.epoch;
       const button = $("button", form);
       button.disabled = true;
+      $("#content").classList.add("search-pending", "search-active");
+      $(".discovery")?.remove();
       $("#results").innerHTML =
-        '<div class="loading">正在搜索你的资源源…</div>';
+        '<div class="loading">正在为你寻找…</div><div class="skeleton"></div><div class="skeleton"></div>';
       try {
-        const data = await api("/search?q=" + encodeURIComponent(state.query));
+        let data;
+        if (query.startsWith("magnet:?")) {
+          const dn =
+            new URLSearchParams(query.slice(8)).get("dn") || "导入的磁力资源";
+          const item = await api("/import", {
+            title: dn.slice(0, 200),
+            magnet: query,
+          });
+          data = { items: [item], errors: [] };
+        } else {
+          if (query.length > 100) throw Error("片名请保持在 100 字以内");
+          data = await api("/search?q=" + encodeURIComponent(query));
+        }
+        if (epoch !== state.epoch) return;
         state.results = data.items;
+        state.quality = "all";
+        state.resultLimit = 24;
+        state.searched = true;
         $("#results").innerHTML =
           data.errors
             .map(
@@ -445,10 +496,20 @@ function bindPage() {
             .join("") +
           (data.items.length
             ? resultsHTML()
-            : `<div class="panel">${empty("暂时没有匹配的资源", "试试其他片名或更短的关键词，也可以检查资源源是否建立索引。", "", "search")}</div>`);
+            : empty(
+                "暂时没找到这部片",
+                "换个片名或更短的关键词试试。",
+                '<button class="text-button" data-nav="connections">检查搜索服务 →</button>',
+                "search",
+              ));
+        animateIn($("#results"));
       } catch (e) {
-        $("#results").innerHTML = `<div class="notice">${esc(e.message)}</div>`;
+        if (epoch === state.epoch)
+          $("#results").innerHTML =
+            `<div class="notice">${esc(e.message)}</div>`;
       } finally {
+        if (epoch === state.epoch)
+          $("#content").classList.remove("search-pending");
         button.disabled = false;
       }
     });
@@ -467,15 +528,33 @@ document.addEventListener("click", async (ev) => {
   try {
     b.disabled = true;
     const action = b.dataset.action;
+    if (b.dataset.quality !== undefined || action === "more") {
+      const chosen = $("#downloader")?.value;
+      if (b.dataset.quality !== undefined) {
+        state.quality = b.dataset.quality;
+        state.resultLimit = 24;
+      } else state.resultLimit += 24;
+      $("#results").innerHTML = resultsHTML();
+      if (chosen && $("#downloader")) $("#downloader").value = chosen;
+      animateIn($("#results"));
+    }
+    if (b.dataset.folder !== undefined) {
+      state.libraryPath = b.dataset.folder;
+      await render();
+    }
+    if (b.dataset.path) {
+      copyText(b.dataset.path, "片库路径已复制");
+    }
     if (action === "refresh") await render();
     if (action === "connection") connectionDialog();
     if (action === "import") importDialog();
     if (action === "subscription") await subscriptionDialog();
     if (action === "export") {
-      if (state.results.length > 100)
+      const selected = visibleResults();
+      if (selected.length > 100)
         throw Error("单次最多导出 100 条，请缩小搜索范围");
       const magnets = [];
-      for (const r of state.results)
+      for (const r of selected)
         magnets.push((await api("/resources/" + r.id + "/resolve", {})).magnet);
       const url = URL.createObjectURL(
         new Blob([magnets.join("\n") + "\n"], { type: "text/plain" }),
@@ -498,8 +577,7 @@ document.addEventListener("click", async (ev) => {
     }
     if (b.dataset.copy) {
       const r = await api("/resources/" + b.dataset.copy + "/resolve", {});
-      await navigator.clipboard.writeText(r.magnet);
-      toast("磁力链接已复制");
+      copyText(r.magnet, "磁力链接已复制");
     }
     if (b.dataset.download) {
       const id = $("#downloader")?.value;
@@ -508,7 +586,14 @@ document.addEventListener("click", async (ev) => {
         resource_id: b.dataset.download,
         downloader_id: id,
       });
-      toast("任务状态：" + (statuses[t.status] || t.status));
+      toast(
+        t.status === "queued"
+          ? "已加入下载，幕间会继续帮你处理"
+          : "下载状态：" + (statuses[t.status] || t.status),
+      );
+      b.textContent = "已加入 ✓";
+      $("#download-dock").hidden = false;
+      $("#dock-label").textContent = "已加入下载 · 查看进度";
     }
     if (b.dataset.cancel) {
       await api("/tasks/" + b.dataset.cancel + "/cancel", {});
@@ -546,21 +631,51 @@ document.addEventListener("click", async (ev) => {
   }
 });
 $("#quick-import").onclick = importDialog;
-$("#logout").onclick = showLogin;
-$("#login-form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  state.token = $("#access-key").value.trim();
-  try {
-    await api("/overview");
-    sessionStorage.setItem("cinebridge-token", state.token);
-    $("#access-key").value = "";
-    showApp();
-  } catch (e) {
-    $("#login-error").textContent = e.message;
+window.addEventListener("hashchange", render);
+document.addEventListener("keydown", async (ev) => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") {
+    ev.preventDefault();
+    if (state.page !== "search") {
+      location.hash = "search";
+    } else $("#query")?.focus();
   }
 });
-window.addEventListener("hashchange", () => {
-  if (state.token) render();
+$("#dialog").addEventListener("click", (ev) => {
+  if (ev.target === $("#dialog")) {
+    const r = ev.target.getBoundingClientRect();
+    if (
+      ev.clientX < r.left ||
+      ev.clientX > r.right ||
+      ev.clientY < r.top ||
+      ev.clientY > r.bottom
+    )
+      ev.target.close();
+  }
 });
-if (state.token) showApp();
-else showLogin();
+async function refreshDock() {
+  try {
+    const tasks = await api("/tasks");
+    const active = tasks.filter((t) =>
+      [
+        "queued",
+        "submitting",
+        "submitted",
+        "downloading",
+        "downloaded",
+      ].includes(t.status),
+    );
+    $("#download-dock").hidden = !active.length;
+    $("#dock-label").textContent = `${active.length} 部正在下载 · 查看进度`;
+    if (
+      state.page === "tasks" &&
+      !$("#dialog").open &&
+      document.visibilityState === "visible"
+    )
+      await render();
+  } catch {
+    /* Manual refresh still provides visible errors. */
+  }
+}
+render();
+refreshDock();
+setInterval(refreshDock, 12000);

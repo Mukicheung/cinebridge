@@ -1,7 +1,7 @@
 import base64
 import fcntl
 import os
-import secrets
+import posixpath
 import threading
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -42,7 +42,7 @@ class Import(Model):
 
 class Task(Model):
     resource_id: str
-    downloader_id: str
+    downloader_id: str = ""
 
 
 class RetryOptions(Model):
@@ -91,9 +91,6 @@ def create_app(directory=None, worker=True):
     @app.middleware("http")
     async def protect(request: Request, call_next):
         if request.url.path.startswith("/api/"):
-            authorization = request.headers.get("authorization", "")
-            if not secrets.compare_digest(authorization, "Bearer " + store.token):
-                return JSONResponse({"detail": "请输入本机访问密钥"}, status_code=401)
             origin = request.headers.get("origin")
             if origin and (
                 urlsplit(origin).netloc != request.headers.get("host")
@@ -116,8 +113,7 @@ def create_app(directory=None, worker=True):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ValueError)
@@ -149,7 +145,7 @@ def create_app(directory=None, worker=True):
 
     @app.post("/api/connections")
     def connection_save(body: Connection):
-        if set(body.config) - {"url", "token", "root"}:
+        if set(body.config) - {"url", "token", "root", "strip_prefix", "username", "password"}:
             raise ValueError("不支持的连接配置字段")
         if body.kind == "cd2" and not body.config.get("root", "").startswith("/"):
             raise ValueError("请填写 CD2 内的完整入库路径")
@@ -243,6 +239,30 @@ def create_app(directory=None, worker=True):
     @app.get("/api/library")
     def library():
         return [t for t in store.tasks() if t["status"] == "completed"]
+
+    @app.get("/api/library/browse")
+    def browse_library(connection_id: str, path: str = ""):
+        c = store.connection(connection_id, private=True)
+        if not c or c["kind"] != "cd2" or not c["enabled"]:
+            raise ValueError("请先连接 115 下载服务")
+        root = posixpath.normpath(c["config"].get("root", "/"))
+        requested = posixpath.normpath(path or root)
+        if requested != root and not requested.startswith(root.rstrip("/") + "/"):
+            raise ValueError("只能浏览已配置的片库目录")
+        adapter = CD2(c["config"])
+        try:
+            items = adapter.ls(requested)
+            items = sorted(items, key=lambda f: (not f["is_dir"], f["name"].casefold()))
+            return {
+                "path": requested,
+                "root": root,
+                "parent": posixpath.dirname(requested) if requested != root else "",
+                "items": items,
+            }
+        except Exception:
+            raise ValueError("片库暂时无法读取，请检查 CD2 连接") from None
+        finally:
+            adapter.close()
 
     @app.get("/api/subscriptions")
     def subscriptions():

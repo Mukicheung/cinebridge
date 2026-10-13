@@ -8,7 +8,7 @@ credentials, resource index, protobuf module or configuration was imported.
 - AList filesystem API: https://alistgo.com/guide/api/fs
 - BitTorrent v1 metainfo: https://www.bittorrent.org/beps/bep_0003.html
 
-`cd2.py` declares only 10 necessary wire message shapes (23 fields) through the
+`cd2.py` declares only 12 necessary wire message shapes (27 fields) through the
 protobuf descriptor API. Field names/numbers and RPC paths follow the public
 protocol. This repository does not redistribute CD2 or its full generated SDK.
 It uses user-created API tokens with `authorization: Bearer ...` metadata.
@@ -23,3 +23,7 @@ an appropriate index. API tokens are never forwarded to torrent download URLs.
 HTTP redirects are not followed automatically: configure the final service URL.
 
 External services retain their respective names, software licenses and terms.
+
+Local iteration: use paginated `ListAllOfflineFiles` for task polling, with a bounded scan that resumes between polls. Legacy listing is only used when the server reports UNIMPLEMENTED. Optional `strip_prefix` maps search-index paths to the filesystem namespace; its value is user configuration.
+
+Optional locally configured AList username/password can renew an expired session through `/api/auth/login`. Credentials remain encrypted and are excluded from connection responses. This uses the user-configured service, with no shared endpoint.

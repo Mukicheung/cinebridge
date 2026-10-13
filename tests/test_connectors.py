@@ -102,3 +102,52 @@ def test_douban_declared_total_must_match_before_accepting_snapshot():
     source = Douban(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=text))))
     with pytest.raises(ValueError, match="不完整"):
         source.fetch("example", ["wish"])
+
+
+def test_alist_resolve_maps_configured_prefix_and_keeps_token_on_source_only():
+    import json
+
+    from cinebridge.connectors import AlistSource
+
+    requests = []
+
+    def handle(r):
+        requests.append(r)
+        if r.url.path == "/api/fs/get":
+            assert json.loads(r.content)["path"] == "/Films/Example.torrent"
+            return httpx.Response(
+                200, json={"code": 200, "data": {"raw_url": "https://files.example/Example.torrent"}}
+            )
+        assert "authorization" not in r.headers
+        return httpx.Response(
+            200, content=b"d4:infod6:lengthi1e4:name1:x12:piece lengthi1e6:pieces20:aaaaaaaaaaaaaaaaaaaaee"
+        )
+
+    src = AlistSource(
+        {"url": "https://catalog.example", "token": "private", "strip_prefix": "/Alias"},
+        httpx.Client(transport=httpx.MockTransport(handle)),
+    )
+    assert src.resolve({"path": "/Alias/Films/Example.torrent"}).startswith("magnet:?xt=urn:btih:")
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize("password", ["secret", ""])
+def test_alist_refreshes_expired_session_with_local_credentials(password):
+    from cinebridge.connectors import AlistSource
+
+    calls = []
+
+    def handle(r):
+        calls.append(r.url.path)
+        if r.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"code": 200, "data": {"token": "renewed"}})
+        if r.headers.get("Authorization") != "renewed":
+            return httpx.Response(200, json={"code": 401, "message": "expired"})
+        return httpx.Response(200, json={"code": 200, "data": {"content": [], "total": 0}})
+
+    source = AlistSource(
+        {"url": "https://refresh.example", "token": "expired", "username": "me", "password": password},
+        httpx.Client(transport=httpx.MockTransport(handle)),
+    )
+    assert source.search("Example") == []
+    assert calls == ["/api/fs/search", "/api/auth/login", "/api/fs/search"]
