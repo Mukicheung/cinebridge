@@ -39,6 +39,15 @@ def test_cli_calls_same_server_and_exports_json(tmp_path):
         assert app.state.store.token not in r.stdout
         r = run("tasks", "--json")
         assert r.returncode == 0 and r.stdout.strip() == "[]"
+        import json
+
+        bundle = tmp_path / "client.json"
+        bundle.write_text(json.dumps({"url": "https://gateway.example", "token": "private-user-token"}))
+        r = run("connections", "import", str(bundle), "--json")
+        assert r.returncode == 0, r.stderr
+        assert "private-user-token" not in r.stdout
+        assert json.loads(r.stdout)["kind"] == "gateway"
+
     finally:
         server.should_exit = True
         thread.join(timeout=3)

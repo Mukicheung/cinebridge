@@ -62,6 +62,9 @@ def parser():
     add.add_argument("--token-file", type=Path, help="从文件读取第三方令牌，避免进入 shell 历史")
     add.add_argument("--no-token", action="store_true")
     add.add_argument("--json", action="store_true")
+    bundle = conn_sub.add_parser("import", help="导入独立用户的检索授权文件")
+    bundle.add_argument("file", type=Path)
+    bundle.add_argument("--json", action="store_true")
     test = conn_sub.add_parser("test")
     test.add_argument("id")
     test.add_argument("--json", action="store_true")
@@ -157,7 +160,29 @@ def main():
                     {"confirm_not_submitted": getattr(args, "confirm_not_submitted", False)},
                 )
             elif cmd == "connections":
-                if args.action == "add":
+                if args.action == "import":
+                    if args.file.stat().st_size > 16384:
+                        raise ValueError("授权文件过大")
+                    try:
+                        bundle = json.loads(args.file.read_text())
+                        if (
+                            not isinstance(bundle, dict)
+                            or not isinstance(bundle.get("url"), str)
+                            or not isinstance(bundle.get("token"), str)
+                            or not bundle["token"]
+                        ):
+                            raise ValueError()
+                    except ValueError:
+                        raise ValueError("授权文件格式不正确") from None
+                    result = request(
+                        "/connections",
+                        {
+                            "name": "云端检索",
+                            "kind": "gateway",
+                            "config": {"url": bundle["url"], "token": bundle["token"]},
+                        },
+                    )
+                elif args.action == "add":
                     secret = (
                         args.token_file.read_text().strip()
                         if args.token_file

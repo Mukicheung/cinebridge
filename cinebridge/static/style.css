@@ -1439,3 +1439,39 @@ dialog::backdrop {
   height: 1px;
   opacity: 0;
 }
+
+/* First-run setup keeps each service a distinct, equally weighted step. */
+.setup-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.setup-grid .connection-head {
+  flex-wrap: wrap;
+}
+.setup-grid .connection {
+  display: flex;
+  flex-direction: column;
+}
+.setup-grid .connection-actions {
+  margin-top: auto;
+  padding-top: 18px;
+}
+.setup-check {
+  padding: 28px;
+}
+.setup-check > p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.setup-check > .result {
+  padding-left: 0;
+  padding-right: 0;
+}
+.setup-check > .primary {
+  margin-top: 20px;
+  margin-right: 12px;
+}
+@media (max-width: 1000px) {
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
+}

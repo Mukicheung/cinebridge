@@ -7,9 +7,9 @@
 
 幕间是一个本地运行的影视自动化中台。把用户自己的豆瓣公开片单、资源目录、CloudDrive2 和 115 串起来：搜片、列出候选、导出磁力、提交离线下载，再验证入库。
 
-**项目不提供内置资源站、共享账号、共享接口或代理下载服务。** 只有 115、豆瓣和 CD2 账号仍不足以搜索资源；请接入自己的资源源，或导入自己的种子与磁力。115 在 CD2 中绑定，幕间不接收 115 密码。
+搜索支持两种接入方式：导入服务提供者单独发放的云端检索授权文件，或连接自己的资源目录。开源包不附带资源来源、共享令牌或账号；影片由自己的 115 / CD2 下载。115 在 CD2 中绑定，幕间不接收 115 密码。
 
-当前工作区为 **幕间本地体验版**，基于已发布的 CineBridge v0.1.0。搜索、种子解析和真实 115 下载入库已在本地验证，详见 [本轮验收](docs/LOCAL-REDESIGN.md)。
+**v0.2.0** 提供首次使用引导、云端检索授权导入、公开豆瓣片单同步和本地免登录体验。私有网关由服务提供者独立部署；开源客户端可自行使用其他兼容来源。
 
 ## 可以做什么
 
@@ -25,14 +25,12 @@
 - 浏览 CD2 中已有的 115 片库目录；按画质筛选候选并默认选中唯一下载连接。
 - 第三方连接配置加密保存，令牌不回传页面，无外部字体、CDN 或遥测。
 
-> 当前工作区为本地体验重做版，尚未发布；下面固定到 v0.1.0 的远程安装命令仍安装旧版。体验本版请在本工作区运行 `docker compose up -d --build`。
-
 ## 一键本地部署
 
 准备 Docker Engine + Compose v2，或 Docker Desktop。一行安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tainanzhui/cinebridge/v0.1.0/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tainanzhui/cinebridge/v0.2.0/scripts/install.sh | bash
 ```
 
 也可以先下载并审阅安装脚本。取得项目后，在项目目录运行：
@@ -59,10 +57,12 @@ docker compose up -d --build --wait
 
 ### 首次配置
 
-1. **资源源**：添加自己 AList 兼容服务的地址、API 令牌与搜索根目录；该服务需要已建立搜索索引。也可选择 JSON 目录或直接导入磁力。
+1. **检索**：首次打开进入三步引导，导入独立授权 JSON 文件。也可手动连接自己的 AList 兼容服务（需要搜索索引）、JSON 目录或直接导入磁力。保存后点击“测试连接”。
 2. **CD2 / 115**：在自己的 CD2 中登录 115，创建入库根目录，并生成具有目录读取、创建文件夹、离线下载及任务查询权限的 API 令牌。在幕间填写 CD2 地址、令牌和完整云盘路径。
 3. **搜片**：搜索片名，查看候选资源。仅有一个下载连接时会自动选择，点「存入 115」即可；也可以按画质筛选、只复制或导出磁力。
 4. **豆瓣订阅**：填写豆瓣用户 ID，选择公开片单。默认首次只建基线，不下载全部历史。自动下载需要单独勾选并选择下载连接。
+
+豆瓣按公开页面同步。若页面标注数量大于实际可见数量，界面会分别显示；确认已走完分页后建立公开可见基线。随后重新出现的历史条目不会自动下载；日期缺失或与首次同步同日的条目显示“等待核对”，可点击“找资源”手动选择。验证码、分页中断仍会停止同步。
 
 CD2 与幕间在同一台 Docker Desktop 主机时，可用 `http://host.docker.internal:19798`（端口以你自己的 CD2 为准）。容器里的 `localhost` 指容器自身。幕间不安装、分发或替你激活 CD2，也不挂载宿主机文件系统。
 
@@ -73,6 +73,7 @@ CD2 与幕间在同一台 Docker Desktop 主机时，可用 `http://host.docker.
 ```bash
 cinebridge status --json
 cinebridge connections --json
+cinebridge connections import ./client.json --json
 cinebridge connections add --kind alist --name "我的目录" --endpoint https://catalog.example --root /Films
 cinebridge connections add --kind cd2 --name "我的 CD2" --endpoint http://localhost:19798 --root /115/Movies
 cinebridge connections test CONNECTION_ID
@@ -169,3 +170,16 @@ node --check cinebridge/static/app.js
 [架构与扩展](docs/ARCHITECTURE.md) · [协议来源](docs/PROTOCOLS.md) · [安全说明](SECURITY.md) · [贡献指南](CONTRIBUTING.md)
 
 Apache-2.0。公开核心允许修改与分发；不包含任何私人后端、旧系统代码或账号数据。
+
+### 从旧版升级
+
+保留原项目目录和 Docker 数据卷，先备份数据再更新：
+
+```bash
+docker compose exec -T cinebridge python -c "import sqlite3; s=sqlite3.connect('/data/cinebridge.db'); d=sqlite3.connect('/data/upgrade-backup.db'); s.backup(d); d.close()"
+git fetch origin --tags
+git checkout v0.2.0
+docker compose up -d --build --wait
+```
+
+备份时同时保存 `/data/master.key`，数据库中的连接凭据需要它解密。升级不会自动启用历史下载；原有片单和任务继续保留。不要使用 `docker compose down -v` 删除数据卷。

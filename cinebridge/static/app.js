@@ -25,6 +25,7 @@ const pages = {
   tasks: "下载",
   library: "我的片库",
   connections: "设置",
+  setup: "开始使用",
 };
 const statuses = {
   queued: "等待提交",
@@ -164,11 +165,14 @@ async function render() {
   const previousPage = state.page;
   state.page = pages[location.hash.slice(1)]
     ? location.hash.slice(1)
-    : "search";
+    : previousPage === "setup"
+      ? "setup"
+      : "search";
   const epoch = ++state.epoch;
   try {
     state.connections = await api("/connections");
     if (epoch !== state.epoch) return;
+    if (!state.connections.length && !location.hash) state.page = "setup";
     const html = await views[state.page]();
     if (epoch !== state.epoch) return;
     const update = () => {
@@ -202,6 +206,25 @@ async function render() {
   }
 }
 const views = {
+  async setup() {
+    const sources = state.connections.filter(
+      (c) => c.enabled && c.kind !== "cd2",
+    );
+    const drives = state.connections.filter(
+      (c) => c.enabled && c.kind === "cd2",
+    );
+    const subs = await api("/subscriptions");
+    const card = (n, title, text, action, done) =>
+      `<article class="connection"><div class="connection-head"><div class="service-icon">${n}</div><h3>${title}</h3><span class="badge">${done ? "已配置" : "待连接"}</span></div><p>${text}</p><div class="connection-actions">${action}</div></article>`;
+    return (
+      head(
+        "三步，开始你的片库",
+        "先找片，再连接保存位置。豆瓣自动跟进可以随时开启。",
+      ) +
+      `<div class="connection-grid setup-grid">${card(1, "连接检索", "导入服务提供者给你的授权文件，或连接自己的资源目录。每位用户使用独立授权。", '<button class="primary" data-action="gateway-import">导入检索授权</button><button class="text-button" data-action="connection">手动连接</button>', sources.length)}${card(2, "连接自己的 115", "先在 CD2 中登录自己的 115，再填入 CD2 地址、令牌和保存目录。", '<button class="primary" data-action="setup-drive">连接 CD2 / 115</button>', drives.length)}${card(3, "订阅豆瓣想看", "填入豆瓣用户 ID。首次同步保留历史，从新增条目开始自动找片；不需要豆瓣密码。", '<button class="button" data-action="subscription">添加豆瓣片单</button>', subs.length)}</div>` +
+      `<section class="panel setup-check"><h2>检查后开始使用</h2><p>“已配置”表示信息已保存。点击测试确认当前服务可以访问。</p>${state.connections.map((c) => `<div class="result"><div class="result-main"><h3>${esc(c.name)}</h3></div><button class="button" data-test="${esc(c.id)}">测试连接</button></div>`).join("")}<button class="primary" data-nav="search">去找片 →</button><button class="text-button" data-action="import">已有种子？直接导入</button></section>`
+    );
+  },
   async search() {
     const sources = state.connections.filter(
       (c) => c.kind !== "cd2" && c.enabled,
@@ -348,7 +371,7 @@ function formHandler(fn) {
     }
   });
 }
-function connectionDialog(id) {
+function connectionDialog(id, preset) {
   const c = state.connections.find((x) => x.id === id);
   openDialog(
     c ? "编辑连接" : "连接你的服务",
@@ -360,7 +383,7 @@ function connectionDialog(id) {
     ]
       .map(
         ([v, n]) =>
-          `<option value="${v}" ${c?.kind === v ? "selected" : ""}>${n}</option>`,
+          `<option value="${v}" ${(c?.kind || preset) === v ? "selected" : ""}>${n}</option>`,
       )
       .join(
         "",
@@ -548,6 +571,37 @@ document.addEventListener("click", async (ev) => {
     }
     if (action === "refresh") await render();
     if (action === "connection") connectionDialog();
+    if (action === "setup-drive") connectionDialog(undefined, "cd2");
+    if (action === "gateway-import") {
+      openDialog(
+        "导入检索授权",
+        '<p>选择服务提供者发给你的 JSON 授权文件。授权仅保存在本机，请勿公开分享。</p><form id="modal-form"><input name="bundle" type="file" accept=".json,application/json" required aria-label="检索授权文件">' +
+          formEnd("连接检索"),
+      );
+      formHandler(async (f) => {
+        const file = f.get("bundle");
+        if (!file || file.size > 16384) throw Error("请选择有效的授权文件");
+        let bundle;
+        try {
+          bundle = JSON.parse(await file.text());
+        } catch {
+          throw Error("授权文件格式不正确");
+        }
+        if (
+          typeof bundle.url !== "string" ||
+          typeof bundle.token !== "string" ||
+          !bundle.token
+        )
+          throw Error("授权文件缺少地址或令牌");
+        await api("/connections", {
+          name: "云端检索",
+          kind: "gateway",
+          config: { url: bundle.url, token: bundle.token },
+          enabled: true,
+        });
+        toast("检索授权已保存，请测试连接");
+      });
+    }
     if (action === "import") importDialog();
     if (action === "subscription") await subscriptionDialog();
     if (action === "export") {

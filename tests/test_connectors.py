@@ -151,3 +151,32 @@ def test_alist_refreshes_expired_session_with_local_credentials(password):
     )
     assert source.search("Example") == []
     assert calls == ["/api/fs/search", "/api/auth/login", "/api/fs/search"]
+
+
+def test_douban_visible_snapshot_reports_count_gap_with_complete_pagination():
+    _, Douban, _, _ = connectors()
+
+    def handle(r):
+        return httpx.Response(
+            200,
+            text="""<h1>测试想看的电影(2)</h1>
+        <div class="grid-view"><div class="item"><li class="title">
+        <a href="https://movie.douban.com/subject/1/">Test</a></li>
+        <span class="date">2026-10-14</span></div></div>
+        <div class="paginator"><span class="thispage" data-total-page="1">1</span><span class="next">后页</span></div>""",
+        )
+
+    source = Douban(httpx.Client(transport=httpx.MockTransport(handle)))
+    items = source.fetch("example", ["wish"])
+    assert items[0]["marked_date"] == "2026-10-14"
+    assert source.snapshot == {"visible": 1, "declared": 2, "visibility_gap": True}
+
+
+def test_douban_missing_next_before_last_page_is_rejected():
+    _, Douban, _, _ = connectors()
+    text = """<h1>测试想看的电影(2)</h1><div class="grid-view"><div class="item">
+    <li class="title"><a href="https://movie.douban.com/subject/1/">Test</a></li></div></div>
+    <div class="paginator"><span class="thispage" data-total-page="2">1</span></div>"""
+    source = Douban(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=text))))
+    with pytest.raises(ValueError, match="不完整"):
+        source.fetch("example", ["wish"])

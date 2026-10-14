@@ -1,6 +1,8 @@
 import threading
 import time
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .cd2 import CD2
 from .connectors import AlistSource, DoubanSource, GatewaySource, JsonSource, choose_candidate
@@ -131,11 +133,28 @@ class Engine:
                 if remote and hasattr(remote, "close"):
                     remote.close()
 
-    def ingest(self, sid, items):
+    def ingest(self, sid, items, snapshot=None):
         sub = self.store.subscription(sid)
         baseline = not sub.get("initialized") and not sub.get("import_history", False)
+        if not sub.get("initialized"):
+            sub["baseline_date"] = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+        if snapshot:
+            sub["snapshot"] = snapshot
+            sub["visibility_guard"] = sub.get("visibility_guard", False) or snapshot.get(
+                "visibility_gap", False
+            )
         with self.store.db() as db:
             for item in items:
+                item_status = "baseline" if baseline else "waiting"
+                if not baseline and sub.get("visibility_guard") and not sub.get("import_history"):
+                    try:
+                        marked = datetime.strptime(item.get("marked_date", ""), "%Y-%m-%d").date().isoformat()
+                    except ValueError:
+                        marked = ""
+                    if not marked or marked == sub.get("baseline_date"):
+                        item_status = "needs_review"
+                    elif marked < sub.get("baseline_date", ""):
+                        item_status = "baseline"
                 db.execute(
                     "INSERT OR IGNORE INTO watchlist(id,subscription_id,subject_id,title,year,status) VALUES (?,?,?,?,?,?)",
                     (
@@ -144,15 +163,21 @@ class Engine:
                         item["subject_id"],
                         item["title"],
                         item.get("year"),
-                        "baseline" if baseline else "waiting",
+                        item_status,
                     ),
                 )
             sub.update(
                 initialized=True,
                 last_poll=time.time(),
-                message=f"完整同步 {len(items)} 条；历史基线已保留"
-                if baseline
-                else f"完整同步 {len(items)} 条",
+                message=(
+                    f"已同步公开可见 {len(items)} 条"
+                    + (
+                        f"，页面标注 {snapshot['declared']} 条"
+                        if snapshot and snapshot.get("visibility_gap")
+                        else ""
+                    )
+                    + ("；历史基线已保留" if baseline else "")
+                ),
             )
             import json
 
@@ -169,7 +194,7 @@ class Engine:
             source = DoubanSource()
             try:
                 items = source.fetch(sub["user_id"], sub["statuses"])
-                self.ingest(sid, items)
+                self.ingest(sid, items, snapshot=source.snapshot)
             except Exception as exc:
                 # Only our own parser errors are safe for display; upstream exceptions can contain URLs/tokens.
                 message = (

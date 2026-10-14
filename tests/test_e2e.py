@@ -103,8 +103,27 @@ def test_catalog_to_library_survives_restart_without_duplicate(tmp_path):
                 "config": {"url": f"http://127.0.0.1:{port}", "token": "test-token", "root": "/115/Movies"},
             },
         ).json()
-        resource = c.get("/api/search?q=Independent").json()["items"][0]
-        job = c.post("/api/tasks", json={"resource_id": resource["id"], "downloader_id": cd["id"]}).json()
+        sub = c.post(
+            "/api/subscriptions",
+            json={
+                "name": "Fixture watchlist",
+                "user_id": "example",
+                "auto_download": True,
+                "downloader_id": cd["id"],
+            },
+        ).json()
+        engine = app.state.engine
+        engine.ingest(sub["id"], [{"subject_id": "old", "title": "Historical"}])
+        engine.search_waiting()
+        assert c.get("/api/tasks").json() == []
+        added = [{"subject_id": "new", "title": "Independent Test Film", "year": 2026}]
+        engine.ingest(sub["id"], added)
+        engine.search_waiting()
+        engine.ingest(sub["id"], added)
+        engine.search_waiting()
+        jobs = c.get("/api/tasks").json()
+        assert len(jobs) == 1
+        job = jobs[0]
         app.state.engine.tick()
         assert c.get("/api/tasks").json()[0]["status"] == "downloading"
         restarted = create_app(tmp_path, worker=False)

@@ -259,11 +259,13 @@ class DoubanSource:
     def __init__(self, http=None, sleep=time.sleep):
         self.http = http or client()
         self.sleep = sleep
+        self.snapshot = {}
 
     def fetch(self, user_id, statuses, max_pages=100):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", user_id):
             raise ValueError("豆瓣用户 ID 格式不正确")
         items = {}
+        self.snapshot = {"visible": 0, "declared": 0, "visibility_gap": False}
         for status in statuses:
             if status not in ("wish", "do", "collect"):
                 raise ValueError("未知豆瓣片单类型")
@@ -271,6 +273,7 @@ class DoubanSource:
             visited = set()
             status_ids = set()
             declared_total = None
+            verified_last_page = False
             for page in range(max_pages):
                 if url in visited:
                     raise ValueError("豆瓣分页循环，结果不完整")
@@ -304,6 +307,11 @@ class DoubanSource:
                             "title": titles[0],
                             "year": int(year[1]) if year else None,
                             "douban_status": status,
+                            "marked_date": (
+                                item.select_one(".date").get_text(strip=True)
+                                if item.select_one(".date")
+                                else ""
+                            ),
                         },
                     )
                     status_ids.add(match[1])
@@ -312,6 +320,16 @@ class DoubanSource:
                     raise ValueError("无法读取豆瓣公开片单，未更新基线")
                 next_link = soup.select_one('.next a[href], a[rel="next"][href]')
                 if not next_link:
+                    paginator = soup.select_one(".paginator .thispage[data-total-page]")
+                    if paginator:
+                        try:
+                            total_pages = int(paginator["data-total-page"])
+                            current_page = int(paginator.get_text(strip=True))
+                        except (ValueError, TypeError):
+                            raise ValueError("豆瓣分页信息不完整") from None
+                        if current_page != page + 1 or current_page != total_pages:
+                            raise ValueError("豆瓣分页提前结束，结果不完整")
+                        verified_last_page = True
                     break
                 next_url = urljoin(url, next_link["href"])
                 u = urlsplit(next_url)
@@ -326,5 +344,9 @@ class DoubanSource:
                     raise ValueError("豆瓣分页超过限制，结果不完整")
                 self.sleep(1.5)
             if declared_total is not None and len(status_ids) != declared_total:
-                raise ValueError("豆瓣页面总数与已解析条目不一致，结果不完整；未更新基线")
+                if not verified_last_page or len(status_ids) > declared_total or not status_ids:
+                    raise ValueError("豆瓣页面总数与已解析条目不一致，结果不完整；未更新基线")
+                self.snapshot["visibility_gap"] = True
+            self.snapshot["declared"] += declared_total if declared_total is not None else len(status_ids)
+        self.snapshot["visible"] = len(items)
         return list(items.values())

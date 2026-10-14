@@ -96,3 +96,32 @@ def test_subscription_baseline_and_new_item_dedup(tmp_path):
     assert len(s.watchlist()) == 2
     assert next(x for x in s.watchlist() if x["subject_id"] == "2")["status"] == "waiting"
     assert len(s.tasks()) == 1
+
+
+def test_visible_baseline_never_auto_downloads_old_items_that_reappear(tmp_path):
+    s, e, t = setup(tmp_path, Remote())
+    sub = s.save_subscription({"name": "Mine", "auto_download": True})
+    e.ingest(
+        sub["id"],
+        [{"subject_id": "1", "title": "Old"}],
+        snapshot={"visible": 1, "declared": 3, "visibility_gap": True},
+    )
+    baseline_date = s.subscription(sub["id"])["baseline_date"]
+    e.ingest(
+        sub["id"],
+        [
+            {"subject_id": "2", "title": "Restored", "marked_date": "2000-01-01"},
+            {"subject_id": "3", "title": "Unknown"},
+            {"subject_id": "4", "title": "Today", "marked_date": baseline_date},
+            {"subject_id": "5", "title": "Future", "marked_date": "2099-01-01"},
+        ],
+    )
+    states = {i["subject_id"]: i["status"] for i in s.watchlist()}
+    assert states == {
+        "1": "baseline",
+        "2": "baseline",
+        "3": "needs_review",
+        "4": "needs_review",
+        "5": "waiting",
+    }
+    assert "公开可见" in s.subscription(sub["id"])["message"]
