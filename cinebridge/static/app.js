@@ -231,7 +231,7 @@ const views = {
         "配置一次，以后直接找片、下载。",
         '<button class="primary" data-action="connection">＋ 添加连接</button>',
       ) +
-      `<div class="connection-grid">${state.connections.map((c) => `<article class="connection"><div class="connection-head"><div class="service-icon">${c.kind === "cd2" ? "CD" : c.kind === "alist" ? "AL" : "{ }"}</div><div><h3>${esc(c.name)}</h3><small>${c.kind === "cd2" ? "CloudDrive2 · 115 下载" : c.kind === "alist" ? "AList 兼容资源源" : "JSON 资源目录"}</small></div></div><p class="connection-url">${esc(c.config.url)}<br>${esc(c.config.root || "")}${c.has_token ? " · 已保存访问令牌" : ""}</p><div class="connection-actions"><button class="button small-button" data-test="${c.id}">测试连接</button><button class="button small-button" data-edit="${c.id}">编辑</button><button class="text-button" data-delete="${c.id}">移除</button>${!c.enabled ? '<span class="badge warning">已停用</span>' : ""}</div></article>`).join("")}<button class="connection add-connection" data-action="connection"><h3>＋ 连接一个新服务</h3><p>资源源、CD2 和你的 115</p></button></div><div class="hint">115 在你自己的 CD2 中登录，幕间使用 CD2 的访问令牌。首次下载前，请在 CD2 中建好入库根目录，并授权目录读取、创建和离线下载权限。</div><section class="panel"><div class="panel-head"><h2>当前自动化规则</h2><span class="badge">稳妥优先</span></div><div class="panel-body"><div class="step"><div class="step-num">01</div><div class="step-content"><strong>片名与年份准确匹配</strong><p>优先可播放文件，再按清晰度选择；未匹配成功的影片保留等待。</p></div></div><div class="step"><div class="step-num">02</div><div class="step-content"><strong>每部影片独立目录</strong><p>按片名与资源标识创建文件夹，不改动已有媒体，不自动删除文件。</p></div></div><div class="step"><div class="step-num">03</div><div class="step-content"><strong>定时补找与防重复</strong><p>豆瓣每 10 分钟同步，待匹配条目每 6 小时补找；同一下载连接按资源哈希去重。</p></div></div></div></section>`
+      `<div class="connection-grid">${state.connections.map((c) => `<article class="connection"><div class="connection-head"><div class="service-icon">${c.kind === "cd2" ? "CD" : c.kind === "alist" ? "AL" : c.kind === "gateway" ? "云" : "{ }"}</div><div><h3>${esc(c.name)}</h3><small>${c.kind === "cd2" ? "CloudDrive2 · 115 下载" : c.kind === "alist" ? "AList 兼容资源源" : c.kind === "gateway" ? "云端检索 · 上游信息由服务端保管" : "JSON 资源目录"}</small></div></div><p class="connection-url">${esc(c.config.url)}<br>${esc(c.config.root || "")}${c.has_token ? " · 已保存访问令牌" : ""}</p><div class="connection-actions"><button class="button small-button" data-test="${c.id}">测试连接</button><button class="button small-button" data-edit="${c.id}">编辑</button><button class="text-button" data-delete="${c.id}">移除</button>${!c.enabled ? '<span class="badge warning">已停用</span>' : ""}</div></article>`).join("")}<button class="connection add-connection" data-action="connection"><h3>＋ 连接一个新服务</h3><p>资源源、CD2 和你的 115</p></button></div><div class="hint">115 在你自己的 CD2 中登录，幕间使用 CD2 的访问令牌。首次下载前，请在 CD2 中建好入库根目录，并授权目录读取、创建和离线下载权限。</div><section class="panel"><div class="panel-head"><h2>当前自动化规则</h2><span class="badge">稳妥优先</span></div><div class="panel-body"><div class="step"><div class="step-num">01</div><div class="step-content"><strong>片名与年份准确匹配</strong><p>优先可播放文件，再按清晰度选择；未匹配成功的影片保留等待。</p></div></div><div class="step"><div class="step-num">02</div><div class="step-content"><strong>每部影片独立目录</strong><p>按片名与资源标识创建文件夹，不改动已有媒体，不自动删除文件。</p></div></div><div class="step"><div class="step-num">03</div><div class="step-content"><strong>定时补找与防重复</strong><p>豆瓣每 10 分钟同步，待匹配条目每 6 小时补找；同一下载连接按资源哈希去重。</p></div></div></div></section>`
     );
   },
   async subscriptions() {
@@ -353,6 +353,7 @@ function connectionDialog(id) {
   openDialog(
     c ? "编辑连接" : "连接你的服务",
     `<p>填写自己服务的地址和访问令牌，凭据仅保存在本机。</p><form id="modal-form"><div class="form-grid"><div><label for="conn-name">连接名称</label><input id="conn-name" name="name" required maxlength="100" placeholder="例如：我的资源目录" value="${esc(c?.name || "")}"></div><div><label for="conn-kind">服务类型</label><select id="conn-kind" name="kind">${[
+      ["gateway", "云端检索网关"],
       ["alist", "AList 兼容资源源"],
       ["json", "JSON 资源目录"],
       ["cd2", "CD2 · 115 下载连接"],
@@ -363,7 +364,7 @@ function connectionDialog(id) {
       )
       .join(
         "",
-      )}</select></div><div><label for="conn-url">服务地址</label><input id="conn-url" name="url" type="url" required placeholder="https://your-service.example" value="${esc(c?.config.url || "")}"><p class="form-note">CD2 填写 http(s)://主机:端口；JSON 源填写完整目录文件地址。</p></div><div><label for="conn-token">访问令牌</label><input id="conn-token" name="token" type="password" autocomplete="new-password" placeholder="${c?.has_token ? "已保存，留空保持不变" : "填写此服务的访问令牌"}"></div><div><label for="conn-root">目录路径</label><input id="conn-root" name="root" value="${esc(c?.config.root || "/")}" placeholder="/115/Movies"><p class="form-note">资源源：搜索根目录；CD2：已存在的入库根目录；JSON 源忽略。</p></div><label class="check"><input name="enabled" type="checkbox" ${c && !c.enabled ? "" : "checked"}>启用这个连接</label></div>${formEnd("保存连接")}`,
+      )}</select></div><div><label for="conn-url">服务地址</label><input id="conn-url" name="url" type="url" required placeholder="https://your-service.example" value="${esc(c?.config.url || "")}"><p class="form-note">CD2 填写 http(s)://主机:端口；JSON 源填写完整目录文件地址。</p></div><div><label for="conn-token">访问令牌</label><input id="conn-token" name="token" type="password" autocomplete="new-password" placeholder="${c?.has_token ? "已保存，留空保持不变" : "填写此服务的访问令牌"}"></div><div><label for="conn-root">目录路径</label><input id="conn-root" name="root" value="${esc(c?.config.root || "/")}" placeholder="/115/Movies"><p class="form-note">资源源：搜索根目录；CD2：已存在的入库根目录；JSON 源和云端网关忽略。</p></div><label class="check"><input name="enabled" type="checkbox" ${c && !c.enabled ? "" : "checked"}>启用这个连接</label></div>${formEnd("保存连接")}`,
   );
   formHandler(async (f) => {
     await api("/connections", {
@@ -373,8 +374,8 @@ function connectionDialog(id) {
       config: {
         url: f.get("url"),
         token: f.get("token"),
-        root: f.get("root"),
-        ...(c?.config.strip_prefix
+        ...(f.get("kind") === "gateway" ? {} : { root: f.get("root") }),
+        ...(f.get("kind") !== "gateway" && c?.config.strip_prefix
           ? { strip_prefix: c.config.strip_prefix }
           : {}),
       },

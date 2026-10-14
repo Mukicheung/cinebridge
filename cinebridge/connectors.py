@@ -169,6 +169,70 @@ class JsonSource:
         return resource["magnet"]
 
 
+class GatewaySource:
+    """Client for the public search/resolve protocol; no upstream configuration."""
+
+    def __init__(self, config, http=None):
+        self.config = config
+        self.http = http or client()
+
+    def api(self, path, body):
+        try:
+            with self.http.stream(
+                "POST",
+                self.config["url"].rstrip("/") + path,
+                json=body,
+                headers={"Authorization": "Bearer " + self.config.get("token", "")},
+            ) as response:
+                messages = {
+                    401: "网关授权已失效，请更新访问令牌",
+                    410: "资源已过期，请重新搜索后再试",
+                    429: "请求过于频繁，请稍后再试",
+                    422: "结果过多，请缩小搜索关键词",
+                }
+                if response.status_code in messages:
+                    raise ValueError(messages[response.status_code])
+                response.raise_for_status()
+                if response.is_redirect:
+                    raise ValueError("网关地址发生重定向")
+                raw = bytearray()
+                for chunk in response.iter_bytes():
+                    raw.extend(chunk)
+                    if len(raw) > 8 * 1024 * 1024:
+                        raise ValueError("网关响应超过大小限制")
+                return json.loads(raw)
+        except httpx.HTTPError:
+            raise ValueError("云端网关暂不可用，请稍后重试") from None
+
+    def search(self, query):
+        data = self.api("/v1/search", {"query": query})
+        items = data.get("items")
+        if not isinstance(items, list) or len(items) > 5000:
+            raise ValueError("网关资源列表格式错误")
+        result = []
+        for item in items:
+            if not isinstance(item.get("ref"), str) or not 1 <= len(item["ref"]) <= 8192:
+                raise ValueError("网关资源标识无效")
+            result.append(
+                {
+                    "title": str(item["title"])[:200],
+                    "name": str(item.get("name", item["title"]))[:500],
+                    "year": int(item["year"]) if item.get("year") else None,
+                    "resolution": int(item.get("resolution", 0)),
+                    "size": int(item.get("size", 0)),
+                    "torrent_bytes": int(item.get("torrent_bytes", 0)),
+                    "format": "torrent",
+                    "ref": item["ref"],
+                }
+            )
+        return result
+
+    def resolve(self, resource):
+        value = self.api("/v1/resolve", {"ref": resource["ref"]}).get("magnet", "")
+        magnet_hash(value)
+        return value
+
+
 def normalize(text):
     return re.sub(r"[^\w]", "", unicodedata.normalize("NFKC", text).casefold())
 

@@ -144,13 +144,13 @@ class Store:
     def save_connection(self, obj):
         cid = obj.get("id") or uuid.uuid4().hex
         kind = obj["kind"]
-        if kind not in ("alist", "json", "cd2"):
+        if kind not in ("alist", "json", "cd2", "gateway"):
             raise ValueError("未知连接类型")
         config = dict(obj.get("config", {}))
         if obj.get("id"):
             old = self.connection(cid, private=True)
             if old and old["kind"] == kind:
-                for field in ("token", "username", "password"):
+                for field in ("token",) if kind == "gateway" else ("token", "username", "password"):
                     if not config.get(field):
                         config[field] = old["config"].get(field, "")
         url = urlsplit(config.get("url", ""))
@@ -162,6 +162,8 @@ class Store:
             or url.fragment
         ):
             raise ValueError("连接地址须为 HTTP(S)，凭据请填写在令牌字段")
+        if kind == "gateway" and (url.scheme != "https" or url.query or set(config) - {"url", "token"}):
+            raise ValueError("云端网关须使用 HTTPS，仅填写网关地址和访问令牌")
         if kind in ("alist", "cd2") and url.query:
             raise ValueError("服务地址不能包含查询参数")
         encrypted = self.cipher.encrypt(json.dumps(config).encode()).decode()

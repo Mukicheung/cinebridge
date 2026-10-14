@@ -55,7 +55,7 @@ def parser():
     conn.add_argument("--json", action="store_true")
     conn_sub = conn.add_subparsers(dest="action")
     add = conn_sub.add_parser("add")
-    add.add_argument("--kind", choices=["cd2", "alist", "json"], required=True)
+    add.add_argument("--kind", choices=["cd2", "alist", "json", "gateway"], required=True)
     add.add_argument("--name", required=True)
     add.add_argument("--endpoint", required=True)
     add.add_argument("--root", default="/")
@@ -170,7 +170,11 @@ def main():
                         {
                             "name": args.name,
                             "kind": args.kind,
-                            "config": {"url": args.endpoint, "root": args.root, "token": secret},
+                            "config": {
+                                "url": args.endpoint,
+                                "token": secret,
+                                **({} if args.kind == "gateway" else {"root": args.root}),
+                            },
                         },
                     )
                 elif args.action == "test":

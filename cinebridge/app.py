@@ -28,7 +28,7 @@ class Model(BaseModel):
 class Connection(Model):
     id: str | None = None
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal["alist", "json", "cd2"]
+    kind: Literal["alist", "json", "cd2", "gateway"]
     config: dict[str, str]
     enabled: bool = True
 

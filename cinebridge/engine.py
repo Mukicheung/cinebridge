@@ -3,7 +3,7 @@ import time
 import uuid
 
 from .cd2 import CD2
-from .connectors import AlistSource, DoubanSource, JsonSource, choose_candidate
+from .connectors import AlistSource, DoubanSource, GatewaySource, JsonSource, choose_candidate
 from .core import magnet_hash
 
 
@@ -17,7 +17,9 @@ class Engine:
         self.worker_error = ""
 
     def source(self, connection):
-        return (AlistSource if connection["kind"] == "alist" else JsonSource)(connection["config"])
+        return {"alist": AlistSource, "json": JsonSource, "gateway": GatewaySource}[connection["kind"]](
+            connection["config"]
+        )
 
     def search(self, query):
         results, errors = self.store.imported_resources(query), []
