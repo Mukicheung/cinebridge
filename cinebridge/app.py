@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import __version__
 from .cd2 import CD2
 from .connectors import parse_release
 from .core import Store, magnet_hash, torrent_magnet
@@ -127,7 +128,7 @@ def create_app(directory=None, worker=True):
 
     @app.get("/healthz")
     def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/api/overview")
     def overview():

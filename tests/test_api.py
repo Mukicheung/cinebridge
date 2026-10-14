@@ -192,3 +192,12 @@ def test_saved_source_login_is_private_and_preserved_on_edit(tmp_path):
     assert c.post("/api/connections", json=update).status_code == 200
     saved = c.app.state.store.connection(row["id"], private=True)["config"]
     assert saved["password"] == "private-password"
+
+
+def test_health_reports_current_package_version(tmp_path):
+    import tomllib
+    from pathlib import Path
+
+    c, _ = app(tmp_path)
+    version = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]["version"]
+    assert c.get("/healthz").json()["version"] == version

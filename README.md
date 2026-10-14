@@ -9,7 +9,7 @@
 
 搜索支持两种接入方式：导入服务提供者单独发放的云端检索授权文件，或连接自己的资源目录。开源包不附带资源来源、共享令牌或账号；影片由自己的 115 / CD2 下载。115 在 CD2 中绑定，幕间不接收 115 密码。
 
-**v0.2.0** 提供首次使用引导、云端检索授权导入、公开豆瓣片单同步和本地免登录体验。私有网关由服务提供者独立部署；开源客户端可自行使用其他兼容来源。
+**v0.2.1** 提供首次使用引导、云端检索授权导入、公开豆瓣片单同步和本地免登录体验。私有网关由服务提供者独立部署；开源客户端可自行使用其他兼容来源。
 
 ## 可以做什么
 
@@ -30,7 +30,7 @@
 准备 Docker Engine + Compose v2，或 Docker Desktop。一行安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tainanzhui/cinebridge/v0.2.0/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tainanzhui/cinebridge/v0.2.1/scripts/install.sh | bash
 ```
 
 也可以先下载并审阅安装脚本。取得项目后，在项目目录运行：
@@ -178,7 +178,7 @@ Apache-2.0。公开核心允许修改与分发；不包含任何私人后端、�
 ```bash
 docker compose exec -T cinebridge python -c "import sqlite3; s=sqlite3.connect('/data/cinebridge.db'); d=sqlite3.connect('/data/upgrade-backup.db'); s.backup(d); d.close()"
 git fetch origin --tags
-git checkout v0.2.0
+git checkout v0.2.1
 docker compose up -d --build --wait
 ```
 

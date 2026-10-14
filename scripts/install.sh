@@ -15,7 +15,7 @@ else
     exit 1
   fi
   command -v git >/dev/null || { echo '请先安装 Git。' >&2; exit 1; }
-  git clone --depth 1 --branch "${CINEBRIDGE_REF:-v0.2.0}" "https://github.com/$CINEBRIDGE_REPO.git" "$task_install_dir"
+  git clone --depth 1 --branch "${CINEBRIDGE_REF:-v0.2.1}" "https://github.com/$CINEBRIDGE_REPO.git" "$task_install_dir"
 fi
 cd "$task_install_dir"
 docker compose up -d --build --wait --wait-timeout 180
