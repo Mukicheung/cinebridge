@@ -1,6 +1,6 @@
 # Security
 
-CineBridge is a single-user local administration service, not a public multi-tenant
+Watching Everything is a single-user local administration service, not a public multi-tenant
 search engine. The local edition opens without a login gate.
 
 - Default HTTP port is bound to loopback. Keep that default for local use.

@@ -5,7 +5,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .cd2 import CD2
-from .connectors import AlistSource, DoubanSource, GatewaySource, JsonSource, choose_candidate
+from .connectors import (
+    AlistSource,
+    DoubanSource,
+    GatewaySource,
+    JsonSource,
+    choose_candidate,
+    safe_poster_url,
+)
 from .core import magnet_hash
 
 
@@ -118,7 +125,7 @@ class Engine:
                             files=files,
                             message="远端下载完成，媒体文件已验证",
                         )
-                        self.store.event("一项媒体任务已验证入库")
+                        self.store.event("任务完成，媒体文件已验证")
                 elif status["status"] in ("pending", "downloading"):
                     self.store.update_task(
                         task["id"], status="downloading", progress=status["progress"], message="远端正在下载"
@@ -155,8 +162,9 @@ class Engine:
                         item_status = "needs_review"
                     elif marked < sub.get("baseline_date", ""):
                         item_status = "baseline"
+                cover = safe_poster_url(item.get("cover", ""))
                 db.execute(
-                    "INSERT OR IGNORE INTO watchlist(id,subscription_id,subject_id,title,year,status) VALUES (?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO watchlist(id,subscription_id,subject_id,title,year,status,cover) VALUES (?,?,?,?,?,?,?)",
                     (
                         uuid.uuid4().hex,
                         sid,
@@ -164,8 +172,15 @@ class Engine:
                         item["title"],
                         item.get("year"),
                         item_status,
+                        cover,
                     ),
                 )
+                if cover:
+                    # Only refresh artwork on existing rows; status/baseline stay untouched.
+                    db.execute(
+                        "UPDATE watchlist SET cover=? WHERE subscription_id=? AND subject_id=? AND cover!=?",
+                        (cover, sid, item["subject_id"], cover),
+                    )
             sub.update(
                 initialized=True,
                 last_poll=time.time(),
@@ -240,5 +255,5 @@ class Engine:
                 self.search_waiting()
                 self.worker_error = ""
             except Exception:
-                self.worker_error = "后台任务遇到错误，等待下一轮恢复"
+                self.worker_error = "后台任务出错，下一轮重试"
             self.stop_event.wait(30)

@@ -120,6 +120,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,
               created REAL NOT NULL, message TEXT NOT NULL);
             """)
+            columns = {r[1] for r in db.execute("PRAGMA table_info(watchlist)")}
+            if "cover" not in columns:
+                db.execute("ALTER TABLE watchlist ADD COLUMN cover TEXT NOT NULL DEFAULT ''")
         os.chmod(self.path, 0o600)
 
     @contextlib.contextmanager
@@ -307,6 +310,14 @@ class Store:
     def subscriptions(self):
         with self.db() as db:
             return [json.loads(r[0]) for r in db.execute("SELECT data FROM subscriptions ORDER BY rowid")]
+
+    def watchlist_cover(self, subject_id):
+        with self.db() as db:
+            row = db.execute(
+                "SELECT cover FROM watchlist WHERE subject_id=? AND cover!='' ORDER BY rowid DESC LIMIT 1",
+                (subject_id,),
+            ).fetchone()
+        return row[0] if row else ""
 
     def watchlist(self):
         with self.db() as db:

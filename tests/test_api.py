@@ -65,7 +65,7 @@ def test_subscription_does_not_allow_client_to_set_baseline(tmp_path):
 def test_browser_page_contains_real_application_shell(tmp_path):
     c, _ = app(tmp_path)
     html = c.get("/").text
-    assert "CineBridge" in html
+    assert "Watching Everything" in html
     assert "/static/app.js" in html
     assert c.get("/static/app.js").status_code == 200
 

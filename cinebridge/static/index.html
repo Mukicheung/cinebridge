@@ -3,48 +3,55 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#faf9f6" />
-    <title>幕间 · 下一部，想看什么？</title>
-    <meta name="application-name" content="CineBridge" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Watching Everything</title>
+    <meta name="application-name" content="Watching Everything" />
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <div id="shell">
-      <header class="topbar">
-        <a href="#search" class="brand" aria-label="幕间首页"
-          ><img src="/static/icon.svg" width="32" height="32" alt="" /><span
-            >幕间<small>MUJIAN</small></span
-          ></a
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a href="#search" class="brand" aria-label="Watching Everything 找片"
+          ><svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="20" />
+            <path class="brand-line" d="M18 18v28M46 18v28" />
+            <path class="brand-play" d="m28 22 14 10-14 10z" /></svg
+          ><span>Watching Everything</span></a
         >
-        <nav id="nav" aria-label="主导航"></nav>
-        <div class="topbar-right">
-          <button class="text-button" data-nav="subscriptions">豆瓣片单</button
-          ><button
-            class="settings-button"
-            data-nav="connections"
-            aria-label="设置与服务"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
-            </svg>
-          </button>
+        <nav id="nav" aria-label="主导航">
+          <a href="#search" data-page="search">找片</a
+          ><a href="#subscriptions" data-page="subscriptions">豆瓣片单</a
+          ><a href="#tasks" data-page="tasks">下载<span class="nav-count" id="nav-count" hidden></span></a
+          ><a href="#library" data-page="library">片库</a>
+        </nav>
+        <a href="#connections" class="settings-button" aria-label="设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+          </svg>
+        </a>
+      </div>
+    </header>
+    <main id="content"></main>
+    <footer>
+      <div class="footer-inner">
+        <span class="footer-name">Watching Everything</span>
+        <div class="footer-links">
+          <a href="#setup">开始使用</a>
         </div>
-      </header>
-      <main id="content" aria-live="polite"></main>
-      <footer>
-        <a href="#setup">开始使用</a><span>少一点寻找，多一点好时光。</span
-        ><button id="quick-import" class="text-button">
-          导入种子 / 磁力 ↗
-        </button>
-      </footer>
+      </div>
+    </footer>
+    <dialog id="dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+    <div id="toast" role="status" hidden>
+      <span id="toast-text"></span
+      ><button id="toast-action" class="toast-button" type="button" hidden></button
+      ><button id="toast-close" class="toast-button" type="button" hidden>关闭</button>
     </div>
-    <dialog id="dialog"><div id="dialog-content"></div></dialog>
-    <div id="toast" role="status" hidden></div>
-    <button id="download-dock" data-nav="tasks" hidden>
-      <span class="dock-dot"></span><span id="dock-label">查看下载</span
-      ><span>↗</span>
-    </button>
+    <div id="announcer" class="sr-only" aria-live="polite"></div>
+    <a id="download-dock" href="#tasks" hidden>
+      <span class="dock-dot" aria-hidden="true"></span><span id="dock-label">查看下载</span
+      ><span aria-hidden="true">›</span>
+    </a>
     <script src="/static/app.js" defer></script>
   </body>
 </html>

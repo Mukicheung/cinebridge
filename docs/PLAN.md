@@ -1,4 +1,4 @@
-# CineBridge 0.1 delivery plan
+# Watching Everything 0.1 delivery plan
 
 Build independently from public protocols. Do not copy any existing personal scripts,
 private endpoints, credentials, database snapshots or deployment history.

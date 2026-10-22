@@ -12,7 +12,7 @@ import httpx
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="cinebridge", description="幕间 · 找片、下载、片库")
+    p = argparse.ArgumentParser(prog="cinebridge", description="Watching Everything · 找片、下载、片库")
     p.add_argument("--url", default=os.environ.get("CINEBRIDGE_URL", "http://127.0.0.1:8766"))
     p.add_argument(
         "--data", default=os.environ.get("CINEBRIDGE_DATA", str(Path.home() / ".local/share/cinebridge"))
@@ -99,8 +99,8 @@ def main():
 
         from .app import create_app
 
-        print(f"CineBridge → http://{args.host}:{args.port}", flush=True)
-        print("本地模式：打开即可使用", flush=True)
+        print(f"Watching Everything → http://{args.host}:{args.port}", flush=True)
+        print("本地模式，无需登录", flush=True)
         uvicorn.run(
             create_app(directory), host=args.host, port=args.port, access_log=False, log_level="warning"
         )

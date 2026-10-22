@@ -2,6 +2,8 @@ import base64
 import fcntl
 import os
 import posixpath
+import re
+import tempfile
 import threading
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -17,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .cd2 import CD2
-from .connectors import parse_release
+from .connectors import fetch_poster, parse_release
 from .core import Store, magnet_hash, torrent_magnet
 from .engine import Engine
 
@@ -75,7 +77,9 @@ def create_app(directory=None, worker=True):
                 fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 lockfile.close()
-                raise RuntimeError("该数据目录已有 CineBridge 实例运行；请使用单进程部署") from None
+                raise RuntimeError(
+                    "该数据目录已有 Watching Everything 实例在运行，只支持单进程部署"
+                ) from None
             thread = threading.Thread(target=engine.run, daemon=True, name="cinebridge-worker")
             thread.start()
         yield
@@ -85,7 +89,9 @@ def create_app(directory=None, worker=True):
         if lockfile:
             lockfile.close()
 
-    app = FastAPI(title="CineBridge", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(
+        title="Watching Everything", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+    )
     app.state.store, app.state.engine = store, engine
     static = Path(__file__).parent / "static"
 
@@ -114,7 +120,10 @@ def create_app(directory=None, worker=True):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
-        response.headers["Cache-Control"] = "no-store"
+        if request.url.path.startswith("/api/posters/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=604800"
+        else:
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(ValueError)
@@ -290,7 +299,57 @@ def create_app(directory=None, worker=True):
 
     @app.get("/api/watchlist")
     def watchlist():
-        return store.watchlist()
+        out = []
+        for row in store.watchlist():
+            cover = row.pop("cover", "")
+            row["poster"] = f"/api/posters/{row['subject_id']}" if cover else None
+            out.append(row)
+        return out
+
+    poster_dir = store.directory / "posters"
+
+    def image_type(data):
+        if data[:3] == b"\xff\xd8\xff":
+            return "image/jpeg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return "image/png"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp"
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return "image/gif"
+        return None
+
+    def poster_response(path):
+        with open(path, "rb") as f:
+            head = f.read(16)
+        return FileResponse(path, media_type=image_type(head) or "image/jpeg")
+
+    @app.get("/api/posters/{subject_id}")
+    def poster(subject_id: str):
+        if not re.fullmatch(r"[0-9]{1,20}", subject_id):
+            return JSONResponse({"detail": "海报不存在"}, status_code=404)
+        path = poster_dir / f"{subject_id}.jpg"
+        if path.is_file():
+            return poster_response(path)
+        cover = store.watchlist_cover(subject_id)
+        if not cover:
+            return JSONResponse({"detail": "海报不存在"}, status_code=404)
+        try:
+            data = fetch_poster(cover)
+            if not image_type(data):
+                raise ValueError("海报格式不正确")
+        except Exception:
+            return JSONResponse({"detail": "海报暂时无法获取"}, status_code=502)
+        poster_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, tmp = tempfile.mkstemp(dir=poster_dir, suffix=".part")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return poster_response(path)
 
     @app.get("/")
     def index():

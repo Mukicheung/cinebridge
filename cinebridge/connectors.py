@@ -36,6 +36,70 @@ def limited_get(http, url, headers=None, limit=8 * 1024 * 1024):
         return bytes(result)
 
 
+POSTER_HOST = re.compile(r"img\d*\.doubanio\.com")
+
+
+def safe_poster_url(value):
+    """Return a Douban image CDN URL or an empty string; never raise."""
+    try:
+        u = urlsplit((value or "").strip())
+        if (
+            u.scheme != "https"
+            or not u.hostname
+            or not POSTER_HOST.fullmatch(u.hostname)
+            or u.port not in (None, 443)
+            or u.username
+            or u.password
+            or not u.path.startswith("/")
+        ):
+            return ""
+        return u._replace(fragment="").geturl().replace("/s_ratio_poster/", "/m_ratio_poster/")
+    except (ValueError, AttributeError):
+        return ""
+
+
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+)
+
+
+def fetch_poster(url, http=None, limit=5 * 1024 * 1024):
+    """Download a Douban poster. Only validated doubanio hosts are contacted; no redirects."""
+    url = safe_poster_url(url)
+    if not url:
+        raise ValueError("海报地址不受信任")
+    own = http is None
+    http = http or client()
+    try:
+        headers = {"Referer": "https://movie.douban.com/", "User-Agent": BROWSER_UA, "Accept": "image/*"}
+        with http.stream("GET", url, headers=headers) as response:
+            if response.status_code != 200:
+                raise ValueError("海报下载失败")
+            ctype = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            if not ctype.startswith("image/"):
+                raise ValueError("海报类型不正确")
+            result = bytearray()
+            for block in response.iter_bytes():
+                result.extend(block)
+                if len(result) > limit:
+                    raise ValueError("海报超过大小限制")
+            if not result:
+                raise ValueError("海报为空")
+            return bytes(result)
+    finally:
+        if own:
+            http.close()
+
+
+def douban_cover(item):
+    try:
+        img = item.select_one(".pic img") or item.select_one('img[src*="doubanio.com"]')
+        return safe_poster_url(img.get("src", "")) if img else ""
+    except Exception:
+        return ""
+
+
 def parse_release(name):
     name = re.sub(r"\.torrent$", "", name, flags=re.I)
     match = re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", name)
@@ -307,6 +371,7 @@ class DoubanSource:
                             "title": titles[0],
                             "year": int(year[1]) if year else None,
                             "douban_status": status,
+                            "cover": douban_cover(item),
                             "marked_date": (
                                 item.select_one(".date").get_text(strip=True)
                                 if item.select_one(".date")
